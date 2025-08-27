@@ -5,6 +5,9 @@ app_description = "Farm portal"
 app_email = "abdullamirshadcl@gmail.com"
 app_license = "mit"
 
+override_whitelisted_methods = {
+}
+
 # Apps
 # ------------------
 

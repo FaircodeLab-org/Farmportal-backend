@@ -1,0 +1,93 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:user",
+ "creation": "2025-08-20 13:43:31.331628",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "user",
+  "company_name",
+  "contact_person_name",
+  "contact_person_phone",
+  "contact_person_position",
+  "address_street",
+  "address_city",
+  "address_state",
+  "address_postal_code"
+ ],
+ "fields": [
+  {
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "label": "User",
+   "options": "User",
+   "unique": 1
+  },
+  {
+   "fieldname": "company_name",
+   "fieldtype": "Data",
+   "label": "Company name"
+  },
+  {
+   "fieldname": "contact_person_name",
+   "fieldtype": "Data",
+   "label": "Contact person name"
+  },
+  {
+   "fieldname": "contact_person_position",
+   "fieldtype": "Data",
+   "label": "Contact person position"
+  },
+  {
+   "fieldname": "address_street",
+   "fieldtype": "Data",
+   "label": "Address street"
+  },
+  {
+   "fieldname": "address_city",
+   "fieldtype": "Data",
+   "label": "Address city"
+  },
+  {
+   "fieldname": "address_state",
+   "fieldtype": "Data",
+   "label": "Address state"
+  },
+  {
+   "fieldname": "address_postal_code",
+   "fieldtype": "Data",
+   "label": "Address postal code"
+  },
+  {
+   "fieldname": "contact_person_phone",
+   "fieldtype": "Data",
+   "label": "Contact person phone"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-08-20 16:18:56.278661",
+ "modified_by": "Administrator",
+ "module": "Farmportal",
+ "name": "Update profile",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
