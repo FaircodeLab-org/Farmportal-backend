@@ -82,122 +82,274 @@ def _get_party_from_user(user: str) -> tuple[str | None, str | None]:
 #  create_request, respond_to_request) stays the same
 
 
+# @frappe.whitelist()
+# def get_customer_requests():
+#     user = frappe.session.user
+#     if user == "Guest":
+#         frappe.throw(_("Not logged in"), frappe.PermissionError)
+
+#     try:
+#         customer, supplier = _get_party_from_user(user)
+#         # Two-type rule: Supplier shouldn't see the customer endpoint
+#         if supplier and not customer:
+#             return {"requests": []}
+#         if not customer:
+#             # No mapping found; don't crash—return empty
+#             return {"requests": []}
+
+#         rows = frappe.get_all(
+#             DT,
+#             filters={"customer": customer},
+#             # fields=[
+#             #     "name as id", "status", "request_type", "message",
+#             #     "customer", "supplier", "creation", "modified"
+#             # ],
+#             fields=[
+#                 "name as id", "status", "request_type", "message",
+#                 "customer", "supplier", "response_message",   # <— add this
+#                 "creation", "modified"
+#             ],
+#             order_by="creation desc",
+#             limit_page_length=200
+#         )
+#         for r in rows:
+#             r["customer_info"] = {"name": r.get("customer")}
+#             r["supplier_info"] = {"name": r.get("supplier")}
+#         return {"requests": rows}
+#     except Exception:
+#         frappe.log_error(frappe.get_traceback(), "get_customer_requests error")
+#         return {"requests": []}
+
+# @frappe.whitelist()
+# def get_supplier_requests():
+#     user = frappe.session.user
+#     if user == "Guest":
+#         frappe.throw(_("Not logged in"), frappe.PermissionError)
+
+#     try:
+#         customer, supplier = _get_party_from_user(user)
+#         if not supplier:
+#             return {"requests": []}
+
+#         rows = frappe.get_all(
+#             DT,
+#             filters={"supplier": supplier},
+#             # fields=[
+#             #     "name as id", "status", "request_type", "message",
+#             #     "customer", "supplier", "creation", "modified"
+#             # ],
+#             fields=[
+#                 "name as id", "status", "request_type", "message",
+#                 "customer", "supplier", "response_message",   # <— add this
+#                 "creation", "modified"
+#             ],
+#             order_by="creation desc",
+#             limit_page_length=200
+#         )
+#         for r in rows:
+#             r["customer_info"] = {"name": r.get("customer")}
+#             r["supplier_info"] = {"name": r.get("supplier")}
+#         return {"requests": rows}
+#     except Exception:
+#         frappe.log_error(frappe.get_traceback(), "get_supplier_requests error")
+#         return {"requests": []}
+
 @frappe.whitelist()
 def get_customer_requests():
+    """Get all requests for the current customer"""
     user = frappe.session.user
     if user == "Guest":
         frappe.throw(_("Not logged in"), frappe.PermissionError)
-
+    
     try:
         customer, supplier = _get_party_from_user(user)
-        # Two-type rule: Supplier shouldn't see the customer endpoint
-        if supplier and not customer:
-            return {"requests": []}
         if not customer:
-            # No mapping found; don't crash—return empty
-            return {"requests": []}
-
-        rows = frappe.get_all(
-            DT,
+            frappe.throw(_("Customer not found for this user"), frappe.PermissionError)
+        
+        print(f"🔍 Getting requests for customer: {customer}")
+        
+        # Get requests for this customer with PO number
+        requests = frappe.get_all("Request", 
             filters={"customer": customer},
-            # fields=[
-            #     "name as id", "status", "request_type", "message",
-            #     "customer", "supplier", "creation", "modified"
-            # ],
             fields=[
-                "name as id", "status", "request_type", "message",
-                "customer", "supplier", "response_message",   # <— add this
-                "creation", "modified"
+                "name", "customer", "supplier", "request_type", "status", 
+                "creation", "response_message", "shared_plots_json", 
+                "message", "requested_by", "responded_by",
+                "purchase_order_number"  # ✅ Add this field
             ],
-            order_by="creation desc",
-            limit_page_length=200
+            order_by="creation desc"
         )
-        for r in rows:
-            r["customer_info"] = {"name": r.get("customer")}
-            r["supplier_info"] = {"name": r.get("supplier")}
-        return {"requests": rows}
-    except Exception:
+        
+        print(f"📊 Found {len(requests)} requests for customer {customer}")
+        
+        return {"requests": requests}
+        
+    except Exception as e:
+        print(f"Error in get_customer_requests: {str(e)}")
         frappe.log_error(frappe.get_traceback(), "get_customer_requests error")
         return {"requests": []}
 
+
 @frappe.whitelist()
 def get_supplier_requests():
+    """Get all requests for the current supplier"""
+    user = frappe.session.user
+    if user == "Guest":
+        frappe.throw(_("Not logged in"), frappe.PermissionError)
+    
+    try:
+        customer, supplier = _get_party_from_user(user)
+        if not supplier:
+            frappe.throw(_("Supplier not found for this user"), frappe.PermissionError)
+        
+        print(f"🔍 Getting requests for supplier: {supplier}")
+        
+        # Get requests for this supplier with PO number
+        requests = frappe.get_all("Request", 
+            filters={"supplier": supplier},
+            fields=[
+                "name", "customer", "supplier", "request_type", "status", 
+                "creation", "response_message", "shared_plots_json", 
+                "message", "requested_by", "responded_by",
+                "purchase_order_number"  # ✅ Add this field
+            ],
+            order_by="creation desc"
+        )
+        
+        print(f"📊 Found {len(requests)} requests for supplier {supplier}")
+        
+        return {"requests": requests}
+        
+    except Exception as e:
+        print(f"Error in get_supplier_requests: {str(e)}")
+        frappe.log_error(frappe.get_traceback(), "get_supplier_requests error")
+        return {"requests": []}
+
+
+# @frappe.whitelist()
+# def create_request(
+#     supplier_id: str,
+#     request_type: str,
+#     message: str | None = None,
+#     requested_products: list[dict] | str | None = None,
+#     customer_id: str | None = None,  # <-- optional explicit override
+# ):
+#     """Customer-side: create a Request to a Supplier."""
+#     user = frappe.session.user
+#     if user == "Guest":
+#         frappe.throw(_("Not logged in"), frappe.PermissionError)
+
+#     customer, supplier_flag = _get_party_from_user(user)
+#     # Two-type rule: a true Supplier shouldn't be able to create customer requests
+#     if supplier_flag and not customer and not customer_id:
+#         frappe.throw(_("Suppliers cannot create requests"), frappe.PermissionError)
+
+#     # Allow explicit customer override if you pass it from the client
+#     if customer_id:
+#         customer = customer_id
+
+#     if not customer:
+#         frappe.throw(_("No Customer linked to your user"), frappe.PermissionError)
+
+#     doc = frappe.new_doc(DT)
+#     doc.customer = customer
+#     doc.supplier = supplier_id
+#     doc.request_type = request_type
+#     doc.message = message
+#     doc.requested_by = user
+#     doc.status = "Pending"
+
+#     items = _as_list(requested_products)
+#     if items and doc.meta.get_field("requested_products"):
+#         for it in items:
+#             row = doc.append("requested_products", {})
+#             row.item_code = it.get("item_code")
+#             row.qty = it.get("qty")
+#             row.uom = it.get("uom")
+
+#     if request_type == "purchase_order":
+#         if not purchase_order_number:
+#             frappe.throw(_("Purchase Order Number is required"))
+#         doc.purchase_order_number = purchase_order_number
+
+#     doc.insert(ignore_permissions=True)
+#     frappe.db.commit()
+#     return {"name": doc.name, "message": _("Request created")}
+@frappe.whitelist()
+def create_request(supplier_id, request_type, message=None, purchase_order_number=None, requested_products=None, customer_id=None):
+    """Create a new request from customer to supplier"""
     user = frappe.session.user
     if user == "Guest":
         frappe.throw(_("Not logged in"), frappe.PermissionError)
 
     try:
         customer, supplier = _get_party_from_user(user)
-        if not supplier:
-            return {"requests": []}
+        if not customer:
+            frappe.throw(_("Customer not found for this user"), frappe.PermissionError)
 
-        rows = frappe.get_all(
-            DT,
-            filters={"supplier": supplier},
-            # fields=[
-            #     "name as id", "status", "request_type", "message",
-            #     "customer", "supplier", "creation", "modified"
-            # ],
-            fields=[
-                "name as id", "status", "request_type", "message",
-                "customer", "supplier", "response_message",   # <— add this
-                "creation", "modified"
-            ],
-            order_by="creation desc",
-            limit_page_length=200
-        )
-        for r in rows:
-            r["customer_info"] = {"name": r.get("customer")}
-            r["supplier_info"] = {"name": r.get("supplier")}
-        return {"requests": rows}
-    except Exception:
-        frappe.log_error(frappe.get_traceback(), "get_supplier_requests error")
-        return {"requests": []}
+        # Validate required fields
+        if not supplier_id:
+            frappe.throw(_("Supplier is required"))
+        if not request_type:
+            frappe.throw(_("Request type is required"))
 
-@frappe.whitelist()
-def create_request(
-    supplier_id: str,
-    request_type: str,
-    message: str | None = None,
-    requested_products: list[dict] | str | None = None,
-    customer_id: str | None = None,  # <-- optional explicit override
-):
-    """Customer-side: create a Request to a Supplier."""
-    user = frappe.session.user
-    if user == "Guest":
-        frappe.throw(_("Not logged in"), frappe.PermissionError)
+        # Special validation for purchase order requests
+        if request_type == "purchase_order" and not purchase_order_number:
+            frappe.throw(_("Purchase Order Number is required for Purchase Order requests"))
 
-    customer, supplier_flag = _get_party_from_user(user)
-    # Two-type rule: a true Supplier shouldn't be able to create customer requests
-    if supplier_flag and not customer and not customer_id:
-        frappe.throw(_("Suppliers cannot create requests"), frappe.PermissionError)
+        print(f"🔍 Creating request: type={request_type}, supplier={supplier_id}, customer={customer}")
+        if purchase_order_number:
+            print(f"📦 Purchase Order Number: {purchase_order_number}")
 
-    # Allow explicit customer override if you pass it from the client
-    if customer_id:
-        customer = customer_id
+        # Create the request document
+        doc = frappe.new_doc("Request")
+        doc.customer = customer_id or customer  # Allow override for admin
+        doc.supplier = supplier_id
+        doc.request_type = request_type
+        doc.message = message or ""
+        doc.status = "Pending"
+        doc.requested_by = user
 
-    if not customer:
-        frappe.throw(_("No Customer linked to your user"), frappe.PermissionError)
+        # Add purchase order number for purchase order requests
+        if request_type == "purchase_order" and purchase_order_number:
+            # Check if the custom field exists
+            if hasattr(doc, 'purchase_order_number'):
+                doc.purchase_order_number = purchase_order_number
+            else:
+                # If custom field doesn't exist yet, store in message for now
+                doc.message = f"Purchase Order: {purchase_order_number}\n{message or ''}"
+                print(f"⚠️ Custom field 'purchase_order_number' not found, storing in message")
 
-    doc = frappe.new_doc(DT)
-    doc.customer = customer
-    doc.supplier = supplier_id
-    doc.request_type = request_type
-    doc.message = message
-    doc.requested_by = user
-    doc.status = "Pending"
+        # Handle requested products if provided
+        if requested_products and isinstance(requested_products, (list, str)):
+            if isinstance(requested_products, str):
+                doc.requested_products = requested_products
+            else:
+                # Convert list to JSON string
+                import json
+                doc.requested_products = json.dumps(requested_products)
 
-    items = _as_list(requested_products)
-    if items and doc.meta.get_field("requested_products"):
-        for it in items:
-            row = doc.append("requested_products", {})
-            row.item_code = it.get("item_code")
-            row.qty = it.get("qty")
-            row.uom = it.get("uom")
+        # Save the document
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
 
-    doc.insert(ignore_permissions=True)
-    frappe.db.commit()
-    return {"name": doc.name, "message": _("Request created")}
+        print(f"✅ Request created successfully: {doc.name}")
+
+        return {
+            "id": doc.name,
+            "customer": doc.customer,
+            "supplier": doc.supplier,
+            "request_type": doc.request_type,
+            "status": doc.status,
+            "purchase_order_number": purchase_order_number,
+            "message": _("Request created successfully"),
+        }
+
+    except Exception as e:
+        print(f"❌ Error creating request: {str(e)}")
+        frappe.log_error(frappe.get_traceback(), "create_request error")
+        frappe.throw(_("Failed to create request: {0}").format(str(e)))
+
 
 # @frappe.whitelist()
 # def respond_to_request(request_id, action=None, message=None, shared_plots=None, status=None):
@@ -328,7 +480,7 @@ def respond_to_request(request_id, action=None, message=None, shared_plots=None,
     token = a or s  # prefer explicit action, else status
 
     if token in ACCEPT:
-        doc.status = "Completed"
+        doc.status = "Accepted"
     elif token in REJECT:
         doc.status = "Rejected"
     # else: leave doc.status as-is (e.g., Pending) if nothing matched
@@ -356,3 +508,975 @@ def respond_to_request(request_id, action=None, message=None, shared_plots=None,
         "supplier": doc.supplier,
         "message": _("Response saved"),
     }
+
+
+@frappe.whitelist()
+def get_dashboard_stats():
+    """Return per-user request counts + a few extras without fetching all rows."""
+    user = frappe.session.user
+    if user == "Guest":
+        frappe.throw(_("Not logged in"), frappe.PermissionError)
+
+    def _doctype_exists(dt):
+        try:
+            frappe.get_meta(dt)
+            return True
+        except Exception:
+            return False
+
+    def _count_if_exists(dt, filters=None):
+        try:
+            if not _doctype_exists(dt):
+                return 0
+            return frappe.db.count(dt, filters=filters or {})
+        except Exception:
+            return 0
+
+    customer, supplier = _get_party_from_user(user)
+
+    # Decide whose dashboard this is
+    filters = {}
+    role = None
+    if supplier and not customer:
+        role = "supplier"
+        filters = {"supplier": supplier}
+    elif customer:
+        role = "customer"
+        filters = {"customer": customer}
+    else:
+        # No mapping found; return zeros
+        return {
+            "stats": {
+                "totalRequests": 0,
+                "pendingRequests": 0,
+                "completedRequests": 0,
+                "landPlots": 0,
+                "products": 0,
+                "complianceRate": 0,
+            },
+            "recent": [],
+            "role": None,
+        }
+
+    COMPLETED = ["Completed", "Accepted"]
+    PENDING = ["Pending"]
+
+    total = frappe.db.count("Request", filters=filters)
+    completed = frappe.db.count("Request", filters={**filters, "status": ["in", COMPLETED]})
+    pending = frappe.db.count("Request", filters={**filters, "status": ["in", PENDING]})
+
+
+    # Optional extras (safe if doctypes don’t exist)
+    land_plots = _count_if_exists("Land Plot", filters)
+    products = _count_if_exists("Item", {"disabled": 0}) if role == "supplier" else 0
+
+    compliance_rate = round((completed / total * 100), 0) if total else 0
+
+    recent = frappe.get_all(
+        "Request",
+        filters=filters,
+        fields=["name as id", "status", "request_type", "message", "creation"],
+        order_by="creation desc",
+        limit=5,
+    )
+
+    return {
+        "stats": {
+            "totalRequests": total,
+            "pendingRequests": pending,
+            "completedRequests": completed,
+            "landPlots": land_plots,
+            "products": products,
+            "complianceRate": compliance_rate,
+        },
+        "recent": recent,
+        "role": role,
+    }
+
+# @frappe.whitelist()
+# def get_supplier_land_plots():
+#     """Get land plots for the current supplier user to share with requests"""
+#     user = frappe.session.user
+#     if user == "Guest":
+#         frappe.throw(_("Not logged in"), frappe.PermissionError)
+
+#     customer, supplier = _get_party_from_user(user)
+#     if not supplier:
+#         frappe.throw(_("Only Suppliers can access land plots"), frappe.PermissionError)
+
+#     try:
+#         # Get land plots for this supplier
+#         plots = frappe.get_all(
+#             "Land Plot",
+#             filters={"supplier": supplier, "docstatus": ["!=", 2]},  # Not cancelled
+#             fields=[
+#                 "name as id",
+#                 "plot_id",
+#                 "plot_name", 
+#                 "country",
+#                 "area",
+#                 "coordinates",
+#                 "commodities",
+#                 "products",
+#                 "deforestation_percentage",
+#                 "deforested_area"
+#             ],
+#             order_by="creation desc",
+#             limit_page_length=500
+#         )
+
+#         # Process the plots data
+#         for plot in plots:
+#             # Handle commodities/products that might be stored as JSON strings
+#             if plot.get("commodities") and isinstance(plot["commodities"], str):
+#                 try:
+#                     plot["commodities"] = json.loads(plot["commodities"])
+#                 except:
+#                     plot["commodities"] = plot["commodities"].split(",") if plot["commodities"] else []
+            
+#             if plot.get("products") and isinstance(plot["products"], str):
+#                 try:
+#                     plot["products"] = json.loads(plot["products"])
+#                 except:
+#                     plot["products"] = plot["products"].split(",") if plot["products"] else []
+
+#         return {"plots": plots}
+    
+#     except Exception as e:
+#         frappe.log_error(frappe.get_traceback(), "get_supplier_land_plots error")
+#         return {"plots": []}
+@frappe.whitelist()
+def get_supplier_land_plots():
+    """Get land plots for the current supplier user to share with requests"""
+    user = frappe.session.user
+    if user == "Guest":
+        frappe.throw(_("Not logged in"), frappe.PermissionError)
+
+    customer, supplier = _get_party_from_user(user)
+    if not supplier:
+        frappe.throw(_("Only Suppliers can access land plots"), frappe.PermissionError)
+
+    try:
+        # Get land plots for this supplier - REMOVED 'products' field
+        plots = frappe.get_all(
+            "Land Plot",
+            filters={"supplier": supplier, "docstatus": ["!=", 2]},
+            fields=[
+                "name as id",
+                "plot_id",
+                "plot_name", 
+                "country",
+                "area",
+                "coordinates",
+                "commodities",  # This field exists
+                "deforestation_percentage",
+                "deforested_area"
+                # REMOVED 'products' - doesn't exist in doctype
+            ],
+            order_by="creation desc",
+            limit_page_length=500
+        )
+
+        print(f"📍 Found {len(plots)} plots for supplier {supplier}")
+
+        # Process the plots data
+        for plot in plots:
+            # Handle commodities that might be stored as JSON strings
+            if plot.get("commodities") and isinstance(plot["commodities"], str):
+                try:
+                    plot["commodities"] = json.loads(plot["commodities"])
+                except:
+                    plot["commodities"] = plot["commodities"].split(",") if plot["commodities"] else []
+            elif not plot.get("commodities"):
+                plot["commodities"] = []
+            
+            # Set products same as commodities (since products field doesn't exist)
+            plot["products"] = plot["commodities"]
+
+        return {"plots": plots}
+    
+    except Exception as e:
+        print(f"❌ Error in get_supplier_land_plots: {str(e)}")
+        frappe.log_error(frappe.get_traceback(), "get_supplier_land_plots error")
+        return {"plots": []}
+
+
+# @frappe.whitelist()
+# def get_shared_plots(request_id):
+#     """Get shared land plots for a specific request"""
+#     user = frappe.session.user
+#     if user == "Guest":
+#         frappe.throw(_("Not logged in"), frappe.PermissionError)
+
+#     try:
+#         # Get the request
+#         request_doc = frappe.get_doc("Request", request_id)
+        
+#         # Check if user has access (either customer or supplier of this request)
+#         customer, supplier = _get_party_from_user(user)
+#         if request_doc.customer != customer and request_doc.supplier != supplier:
+#             frappe.throw(_("Not permitted to view this request"), frappe.PermissionError)
+
+#         # Get shared plots from the request
+#         shared_plots_json = request_doc.get("shared_plots_json")
+#         if not shared_plots_json:
+#             return {"plots": [], "request": {"id": request_doc.name, "status": request_doc.status}}
+
+#         try:
+#             plot_ids = json.loads(shared_plots_json) if isinstance(shared_plots_json, str) else shared_plots_json
+#         except:
+#             return {"plots": [], "request": {"id": request_doc.name, "status": request_doc.status}}
+
+#         # Get the actual land plot data
+#         if plot_ids:
+#             plots = frappe.get_all(
+#                 "Land Plot",
+#                 filters={"name": ["in", plot_ids]},
+#                 fields=[
+#                     "name as id",
+#                     "plot_id",
+#                     "plot_name",
+#                     "country", 
+#                     "area",
+#                     "coordinates",
+#                     "commodities",
+#                     "products",
+#                     "deforestation_percentage",
+#                     "deforested_area",
+#                     "geojson"
+#                 ]
+#             )
+
+#             # Process the plots data
+#             for plot in plots:
+#                 if plot.get("commodities") and isinstance(plot["commodities"], str):
+#                     try:
+#                         plot["commodities"] = json.loads(plot["commodities"])
+#                     except:
+#                         plot["commodities"] = plot["commodities"].split(",") if plot["commodities"] else []
+                
+#                 if plot.get("products") and isinstance(plot["products"], str):
+#                     try:
+#                         plot["products"] = json.loads(plot["products"])
+#                     except:
+#                         plot["products"] = plot["products"].split(",") if plot["products"] else []
+
+#         else:
+#             plots = []
+
+#         return {
+#             "plots": plots,
+#             "request": {
+#                 "id": request_doc.name,
+#                 "status": request_doc.status,
+#                 "customer": request_doc.customer,
+#                 "supplier": request_doc.supplier,
+#                 "message": request_doc.message,
+#                 "response_message": request_doc.response_message
+#             }
+#         }
+
+#     except Exception as e:
+#         frappe.log_error(frappe.get_traceback(), f"get_shared_plots error for {request_id}")
+#         return {"plots": [], "request": None}
+
+@frappe.whitelist()
+def get_shared_plots(request_id):
+    """Get shared land plots for a specific request"""
+    user = frappe.session.user
+    if user == "Guest":
+        frappe.throw(_("Not logged in"), frappe.PermissionError)
+
+    try:
+        # Get the request
+        request_doc = frappe.get_doc("Request", request_id)
+        
+        print(f"🔍 Getting shared plots for request: {request_id}")
+        print(f"📦 Raw shared_plots_json field: {request_doc.shared_plots_json}")
+        
+        # Check if user has access
+        customer, supplier = _get_party_from_user(user)
+        if request_doc.customer != customer and request_doc.supplier != supplier:
+            frappe.throw(_("Not permitted to view this request"), frappe.PermissionError)
+
+        # Get shared plots from the request using correct field name
+        shared_plots_json = request_doc.get("shared_plots_json")  # Make sure field name is correct
+        if not shared_plots_json:
+            print(f"⚠️ No shared plots found in shared_plots_json field")
+            return {"plots": [], "request": {"id": request_doc.name, "status": request_doc.status}}
+
+        try:
+            plot_ids = json.loads(shared_plots_json) if isinstance(shared_plots_json, str) else shared_plots_json
+            print(f"📍 Parsed plot IDs: {plot_ids}")
+        except Exception as parse_error:
+            print(f"❌ Error parsing shared plots JSON: {str(parse_error)}")
+            return {"plots": [], "request": {"id": request_doc.name, "status": request_doc.status}}
+
+        # Get the actual land plot data
+        plots = []
+        if plot_ids:
+            plots = frappe.get_all(
+                "Land Plot",
+                filters={"name": ["in", plot_ids]},
+                fields=[
+                    "name as id",
+                    "plot_id", 
+                    "plot_name",
+                    "country",
+                    "area",
+                    "coordinates",
+                    "commodities",
+                    "deforestation_percentage",
+                    "deforested_area"
+                ]
+            )
+            
+            print(f"✅ Found {len(plots)} matching plots")
+
+        return {
+            "plots": plots,
+            "request": {
+                "id": request_doc.name,
+                "status": request_doc.status,
+                "customer": request_doc.customer,
+                "supplier": request_doc.supplier,
+                "message": request_doc.message,
+                "response_message": request_doc.response_message
+            }
+        }
+
+    except Exception as e:
+        print(f"❌ Error in get_shared_plots: {str(e)}")
+        frappe.log_error(frappe.get_traceback(), f"get_shared_plots error for {request_id}")
+        return {"plots": [], "request": None}
+
+
+
+# Update the respond_to_request function to handle plot names instead of IDs
+# @frappe.whitelist()
+# def respond_to_request(request_id, action=None, message=None, shared_plots=None, status=None):
+#     """Supplier-side: respond to a Request with optional land plot sharing."""
+#     user = frappe.session.user
+#     if user == "Guest":
+#         frappe.throw(_("Not logged in"), frappe.PermissionError)
+
+#     customer, supplier = _get_party_from_user(user)
+#     if not supplier:
+#         frappe.throw(_("Only Suppliers can respond"), frappe.PermissionError)
+
+#     doc = frappe.get_doc("Request", request_id)
+
+#     if doc.supplier != supplier:
+#         frappe.throw(_("Not permitted to respond to this request"), frappe.PermissionError)
+
+#     # --- Normalize inputs ---
+#     a = (action or "").strip().lower()
+#     s = (status or "").strip().lower()
+
+#     # Accept / reject synonyms
+#     ACCEPT = {"accept", "accepted", "approve", "approved", "ok", "yes", "y", "complete", "completed", "done"}
+#     REJECT = {"reject", "rejected", "decline", "declined", "no", "n"}
+
+#     token = a or s
+
+#     if token in ACCEPT:
+#         doc.status = "Accepted"
+#     elif token in REJECT:
+#         doc.status = "Rejected"
+
+#     if message is not None:
+#         doc.response_message = message
+
+#     # Handle shared plots - expect plot names/IDs from frontend
+#     if shared_plots:
+#         try:
+#             # shared_plots should be a list of land plot names/IDs
+#             plot_list = shared_plots if isinstance(shared_plots, list) else json.loads(shared_plots)
+#             doc.shared_plots_json = json.dumps(plot_list)
+#         except Exception as e:
+#             frappe.log_error(f"Error processing shared plots: {str(e)}")
+
+#     doc.responded_by = user
+#     doc.save(ignore_permissions=True)
+#     frappe.db.commit()
+
+#     return {
+#         "id": doc.name,
+#         "status": doc.status,
+#         "response_message": doc.response_message,
+#         "customer": doc.customer,
+#         "supplier": doc.supplier,
+#         "shared_plots_count": len(json.loads(doc.shared_plots_json)) if doc.shared_plots_json else 0,
+#         "message": _("Response saved"),
+#     }
+@frappe.whitelist()
+def respond_to_request(request_id, action=None, message=None, shared_plots=None, status=None):
+    """Supplier-side: respond to a Request with optional land plot sharing."""
+    
+    # FIRST - ALWAYS print this to confirm function is called
+    print(f"🚨 RESPOND_TO_REQUEST CALLED: {request_id}")
+    print(f"🚨 ALL PARAMS: request_id={request_id}, action={action}, message={message}, shared_plots={shared_plots}, status={status}")
+    
+    user = frappe.session.user
+    if user == "Guest":
+        frappe.throw(_("Not logged in"), frappe.PermissionError)
+
+    customer, supplier = _get_party_from_user(user)
+    if not supplier:
+        frappe.throw(_("Only Suppliers can respond"), frappe.PermissionError)
+
+    doc = frappe.get_doc("Request", request_id)
+
+    if doc.supplier != supplier:
+        frappe.throw(_("Not permitted to respond to this request"), frappe.PermissionError)
+
+    # Simple status update
+    if action == "accept":
+        doc.status = "Accepted"
+    elif action == "reject":
+        doc.status = "Rejected"
+
+    if message:
+        doc.response_message = message
+
+    # SIMPLE shared plots handling
+    if shared_plots:
+        print(f"🔥 SHARED PLOTS RECEIVED: {shared_plots}")
+        print(f"🔥 TYPE: {type(shared_plots)}")
+        
+        # Convert to JSON string
+        if isinstance(shared_plots, list):
+            plots_json = json.dumps(shared_plots)
+        else:
+            plots_json = str(shared_plots)
+            
+        doc.shared_plots_json = plots_json
+        print(f"🔥 SETTING shared_plots_json TO: {plots_json}")
+    else:
+        print(f"🔥 NO SHARED PLOTS RECEIVED")
+
+    doc.responded_by = user
+    
+    print(f"🔥 SAVING DOCUMENT...")
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+    print(f"🔥 DOCUMENT SAVED!")
+
+    return {
+        "id": doc.name,
+        "status": doc.status,
+        "message": "Response saved"
+    }
+
+
+#for risk dashboard
+# Add to your requests.py file
+
+@frappe.whitelist()
+def get_risk_dashboard_data():
+    """Get risk analysis data for customer dashboard"""
+    user = frappe.session.user
+    if user == "Guest":
+        frappe.throw(_("Not logged in"), frappe.PermissionError)
+
+    try:
+        customer, supplier = _get_party_from_user(user)
+        if not customer:
+            return {"suppliers": [], "summary": {}}
+
+        # Get all requests for this customer with shared plots
+        requests_with_plots = frappe.db.sql("""
+            SELECT 
+                r.name,
+                r.supplier,
+                r.shared_plots_json,
+                r.status,
+                r.creation,
+                r.response_message
+            FROM `tabRequest` r
+            WHERE r.customer = %s 
+            AND r.shared_plots_json IS NOT NULL 
+            AND r.shared_plots_json != ''
+            ORDER BY r.creation DESC
+        """, (customer,), as_dict=True)
+
+        suppliers_data = {}
+        
+        for request in requests_with_plots:
+            supplier_name = request.supplier
+            
+            if supplier_name not in suppliers_data:
+                # Get supplier info
+                supplier_info = frappe.db.get_value("Supplier", supplier_name, 
+                    ["supplier_name", "country", "supplier_group"], as_dict=True)
+                
+                suppliers_data[supplier_name] = {
+                    "name": supplier_name,
+                    "supplier_name": supplier_info.get("supplier_name") if supplier_info else supplier_name,
+                    "country": supplier_info.get("country") if supplier_info else "Unknown",
+                    "supplier_group": supplier_info.get("supplier_group") if supplier_info else "",
+                    "unique_plots": {},  # ✅ Use dict to store unique plots by plot ID
+                    "requests": [],
+                    "total_area": 0,
+                    "total_deforestation": 0,
+                    "high_risk_plots": 0,
+                    "medium_risk_plots": 0,
+                    "low_risk_plots": 0,
+                    "last_analysis": request.creation,
+                    "status": "active"
+                }
+            
+            # Parse shared plots
+            try:
+                plot_ids = json.loads(request.shared_plots_json)
+                
+                # Get plot details
+                if plot_ids:
+                    plots = frappe.get_all("Land Plot", 
+                        filters={"name": ["in", plot_ids]},
+                        fields=[
+                            "name", "plot_id", "plot_name", "country", "area",
+                            "deforestation_percentage", "deforested_area", 
+                            "commodities", "coordinates"
+                        ]
+                    )
+                    
+                    for plot in plots:
+                        plot_unique_id = plot["name"]  # Use plot name as unique identifier
+                        
+                        # Calculate risk level
+                        deforestation = plot.get("deforestation_percentage", 0)
+                        risk_level = "low"
+                        if deforestation > 5:
+                            risk_level = "high"
+                        elif deforestation > 1:
+                            risk_level = "medium"
+                        
+                        plot["risk_level"] = risk_level
+                        
+                        # ✅ DEDUPLICATION LOGIC
+                        if plot_unique_id in suppliers_data[supplier_name]["unique_plots"]:
+                            # Plot already exists, add this request to the sharing history
+                            existing_plot = suppliers_data[supplier_name]["unique_plots"][plot_unique_id]
+                            existing_plot["shared_in_requests"].append({
+                                "request_id": request.name,
+                                "request_date": request.creation,
+                                "status": request.status
+                            })
+                            existing_plot["total_shares"] += 1
+                            
+                            # Update with latest data if this request is more recent
+                            if request.creation > existing_plot["last_shared_date"]:
+                                existing_plot.update({
+                                    "plot_id": plot.get("plot_id"),
+                                    "plot_name": plot.get("plot_name"),
+                                    "country": plot.get("country"),
+                                    "area": plot.get("area", 0),
+                                    "deforestation_percentage": plot.get("deforestation_percentage", 0),
+                                    "deforested_area": plot.get("deforested_area", 0),
+                                    "commodities": plot.get("commodities"),
+                                    "coordinates": plot.get("coordinates"),
+                                    "risk_level": risk_level,
+                                    "last_shared_date": request.creation,
+                                    "latest_request_id": request.name
+                                })
+                        else:
+                            # New unique plot
+                            suppliers_data[supplier_name]["unique_plots"][plot_unique_id] = {
+                                "name": plot["name"],
+                                "plot_id": plot.get("plot_id"),
+                                "plot_name": plot.get("plot_name"),
+                                "country": plot.get("country"),
+                                "area": plot.get("area", 0),
+                                "deforestation_percentage": plot.get("deforestation_percentage", 0),
+                                "deforested_area": plot.get("deforested_area", 0),
+                                "commodities": plot.get("commodities"),
+                                "coordinates": plot.get("coordinates"),
+                                "risk_level": risk_level,
+                                "shared_in_requests": [{
+                                    "request_id": request.name,
+                                    "request_date": request.creation,
+                                    "status": request.status
+                                }],
+                                "total_shares": 1,
+                                "first_shared_date": request.creation,
+                                "last_shared_date": request.creation,
+                                "latest_request_id": request.name
+                            }
+                            
+            except Exception as e:
+                print(f"Error parsing shared plots for request {request.name}: {str(e)}")
+            
+            suppliers_data[supplier_name]["requests"].append({
+                "id": request.name,
+                "status": request.status,
+                "creation": request.creation,
+                "response_message": request.response_message
+            })
+
+        # ✅ Calculate metrics based on UNIQUE plots only
+        for supplier_name, data in suppliers_data.items():
+            unique_plots_list = list(data["unique_plots"].values())
+            data["shared_plots"] = unique_plots_list  # Convert to list for frontend compatibility
+            
+            total_plots = len(unique_plots_list)
+            
+            # Reset counters
+            data["total_area"] = 0
+            data["total_deforestation"] = 0
+            data["high_risk_plots"] = 0
+            data["medium_risk_plots"] = 0
+            data["low_risk_plots"] = 0
+            
+            if total_plots > 0:
+                # Recalculate based on unique plots
+                for plot in unique_plots_list:
+                    data["total_area"] += plot.get("area", 0)
+                    data["total_deforestation"] += plot.get("deforested_area", 0)
+                    
+                    # Count risk levels
+                    if plot["risk_level"] == "high":
+                        data["high_risk_plots"] += 1
+                    elif plot["risk_level"] == "medium":
+                        data["medium_risk_plots"] += 1
+                    else:
+                        data["low_risk_plots"] += 1
+                
+                # Calculate overall risk level
+                high_risk_pct = (data["high_risk_plots"] / total_plots) * 100
+                medium_risk_pct = (data["medium_risk_plots"] / total_plots) * 100
+                
+                if high_risk_pct > 20:
+                    data["overall_risk"] = "high"
+                elif high_risk_pct > 5 or medium_risk_pct > 30:
+                    data["overall_risk"] = "medium"
+                else:
+                    data["overall_risk"] = "low"
+                
+                # Calculate compliance score (100 - deforestation impact)
+                avg_deforestation = (data["total_deforestation"] / data["total_area"]) * 100 if data["total_area"] > 0 else 0
+                data["compliance_score"] = max(0, min(100, 100 - (avg_deforestation * 2)))
+                data["avg_deforestation"] = avg_deforestation
+                
+                # Add summary info
+                data["total_unique_plots"] = total_plots
+                data["total_sharing_instances"] = sum([plot["total_shares"] for plot in unique_plots_list])
+            else:
+                data["overall_risk"] = "unknown"
+                data["compliance_score"] = 0
+                data["avg_deforestation"] = 0
+                data["total_unique_plots"] = 0
+                data["total_sharing_instances"] = 0
+            
+            # Remove the dict version, keep only the list for frontend
+            del data["unique_plots"]
+
+        # Convert to list
+        suppliers_list = list(suppliers_data.values())
+        
+        # Calculate summary based on unique plots
+        summary = {
+            "total_suppliers": len(suppliers_list),
+            "high_risk": len([s for s in suppliers_list if s.get("overall_risk") == "high"]),
+            "medium_risk": len([s for s in suppliers_list if s.get("overall_risk") == "medium"]),
+            "low_risk": len([s for s in suppliers_list if s.get("overall_risk") == "low"]),
+            "unknown_risk": len([s for s in suppliers_list if s.get("overall_risk") == "unknown"]),
+            "total_plots": sum([s.get("total_unique_plots", 0) for s in suppliers_list]),
+            "total_sharing_instances": sum([s.get("total_sharing_instances", 0) for s in suppliers_list]),
+            "total_area": sum([s["total_area"] for s in suppliers_list]),
+            "total_deforestation": sum([s["total_deforestation"] for s in suppliers_list]),
+            "avg_compliance": sum([s["compliance_score"] for s in suppliers_list]) / len(suppliers_list) if suppliers_list else 0
+        }
+
+        print(f"✅ Risk Dashboard: {summary['total_suppliers']} suppliers, {summary['total_plots']} unique plots, {summary['total_sharing_instances']} sharing instances")
+        
+        return {"suppliers": suppliers_list, "summary": summary}
+        
+    except Exception as e:
+        print(f"Error in get_risk_dashboard_data: {str(e)}")
+        frappe.log_error(frappe.get_traceback(), "get_risk_dashboard_data error")
+        return {"suppliers": [], "summary": {}}
+
+
+# Add to your requests.py file
+
+@frappe.whitelist()
+def get_purchase_order_details(request_id):
+    """Get purchase order details for supplier response"""
+    user = frappe.session.user
+    if user == "Guest":
+        frappe.throw(_("Not logged in"), frappe.PermissionError)
+
+    try:
+        customer, supplier = _get_party_from_user(user)
+        if not supplier:
+            frappe.throw(_("Only Suppliers can access PO details"), frappe.PermissionError)
+
+        # Get the request details
+        request_doc = frappe.get_doc("Request", request_id)
+        if request_doc.supplier != supplier:
+            frappe.throw(_("Not authorized for this request"), frappe.PermissionError)
+
+        # Get purchase order number from request message or additional fields
+        po_number = request_doc.get("purchase_order_number") or "N/A"
+
+        # Get supplier's existing data
+        plots = frappe.get_all("Land Plot",
+            filters={"supplier": supplier},
+            fields=["name as id", "plot_id", "plot_name", "area", "country", "commodities"]
+        )
+
+        products = [
+            {"id": "1", "name": "Coffee Arabica", "category": "Coffee"},
+            {"id": "2", "name": "Coffee Robusta", "category": "Coffee"},
+            {"id": "3", "name": "Cocoa Beans", "category": "Cocoa"},
+            {"id": "4", "name": "Palm Oil", "category": "Oil"},
+            {"id": "5", "name": "Cardamom", "category": "Spice"}
+        ]
+
+        return {
+            "request_id": request_id,
+            "purchase_order_number": po_number,
+            "supplier": supplier,
+            "customer": request_doc.customer,
+            "plots": plots,
+            "products": products,
+            "existing_batches": []  # Can be populated from a Batch doctype if exists
+        }
+
+    except Exception as e:
+        print(f"Error in get_purchase_order_details: {str(e)}")
+        frappe.log_error(frappe.get_traceback(), "get_purchase_order_details error")
+        return {"error": str(e)}
+
+
+@frappe.whitelist()
+def submit_purchase_order_data(request_id, po_data):
+    """Submit comprehensive purchase order data"""
+    user = frappe.session.user
+    if user == "Guest":
+        frappe.throw(_("Not logged in"), frappe.PermissionError)
+
+    try:
+        customer, supplier = _get_party_from_user(user)
+        if not supplier:
+            frappe.throw(_("Only Suppliers can submit PO data"), frappe.PermissionError)
+
+        # Parse the PO data
+        if isinstance(po_data, str):
+            po_data = json.loads(po_data)
+
+        print(f"📦 Received PO data: {po_data}")
+
+        # Update the request with PO response
+        request_doc = frappe.get_doc("Request", request_id)
+        if request_doc.supplier != supplier:
+            frappe.throw(_("Not authorized"), frappe.PermissionError)
+
+        # Store PO data as JSON in response_data field (add this field to Request doctype)
+        request_doc.status = "Accepted"
+        request_doc.response_message = f"Purchase order data submitted with {len(po_data.get('batches', []))} batches"
+        
+        # Store comprehensive PO data
+        request_doc.purchase_order_data = json.dumps(po_data)
+        
+        request_doc.responded_by = user
+        request_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        return {
+            "message": "Purchase order data submitted successfully",
+            "status": "Accepted",
+            "batches_count": len(po_data.get('batches', [])),
+            "plots_count": len(po_data.get('selected_plots', [])),
+            "products_count": len(po_data.get('products', []))
+        }
+
+    except Exception as e:
+        print(f"Error in submit_purchase_order_data: {str(e)}")
+        frappe.throw(_("Failed to submit PO data"))
+
+
+@frappe.whitelist()
+def get_purchase_order_response(request_id):
+    """Get detailed purchase order response data for customers"""
+    user = frappe.session.user
+    if user == "Guest":
+        frappe.throw(_("Not logged in"), frappe.PermissionError)
+
+    try:
+        customer, supplier = _get_party_from_user(user)
+        
+        # Get the request
+        request_doc = frappe.get_doc("Request", request_id)
+        
+        # Check permissions - customer or supplier can view
+        if request_doc.customer != customer and request_doc.supplier != supplier:
+            frappe.throw(_("Not authorized to view this request"), frappe.PermissionError)
+
+        if request_doc.request_type != "purchase_order":
+            frappe.throw(_("This is not a purchase order request"))
+
+        if not request_doc.get("purchase_order_data"):
+            return {
+                "request": {
+                    "id": request_doc.name,
+                    "purchase_order_number": request_doc.get("purchase_order_number") or "N/A",
+                    "status": request_doc.status,
+                    "supplier": request_doc.supplier,
+                    "customer": request_doc.customer
+                },
+                "data": None,
+                "message": "Purchase order data not yet submitted by supplier"
+            }
+
+        # Parse the stored JSON data
+        try:
+            po_data = json.loads(request_doc.purchase_order_data)
+        except Exception as e:
+            print(f"Error parsing PO data: {str(e)}")
+            frappe.throw(_("Error reading purchase order data"))
+
+        # Get detailed plot information
+        detailed_plots = []
+        if po_data.get("selected_plots"):
+            plots = frappe.get_all("Land Plot",
+                filters={"name": ["in", po_data["selected_plots"]]},
+                fields=[
+                    "name as id", "plot_id", "plot_name", "country", "area",
+                    "coordinates", "commodities", "deforestation_percentage",
+                    "deforested_area", "supplier"
+                ]
+            )
+            detailed_plots = plots
+
+        # Get detailed product information  
+        detailed_products = []
+        if po_data.get("products"):
+            # Since products are currently mock data, we'll return them as-is
+            # In a real system, you'd query a Product doctype
+            product_ids = po_data["products"]
+            mock_products = [
+                {"id": "1", "name": "Coffee Arabica", "category": "Coffee"},
+                {"id": "2", "name": "Coffee Robusta", "category": "Coffee"}, 
+                {"id": "3", "name": "Cocoa Beans", "category": "Cocoa"},
+                {"id": "4", "name": "Palm Oil", "category": "Oil"},
+                {"id": "5", "name": "Cardamom", "category": "Spice"}
+            ]
+            detailed_products = [p for p in mock_products if p["id"] in product_ids]
+
+        # Calculate summary statistics
+        total_plots = len(detailed_plots)
+        total_area = sum([plot.get("area", 0) for plot in detailed_plots])
+        total_batches = len(po_data.get("batches", []))
+        total_products = len(detailed_products)
+        
+        # EUDR compliance summary
+        eudr_relevant_batches = len([b for b in po_data.get("batches", []) if b.get("eudrRelevant", True)])
+        high_risk_plots = len([p for p in detailed_plots if p.get("deforestation_percentage", 0) > 5])
+
+        response_data = {
+            "request": {
+                "id": request_doc.name,
+                "purchase_order_number": request_doc.get("purchase_order_number") or "N/A",
+                "status": request_doc.status,
+                "supplier": request_doc.supplier,
+                "customer": request_doc.customer,
+                "creation": request_doc.creation,
+                "response_message": request_doc.response_message
+            },
+            "data": {
+                "batches": po_data.get("batches", []),
+                "plots": detailed_plots,
+                "production_dates": po_data.get("production_dates", []),
+                "production_date_scope": po_data.get("production_date_scope", "per_plot"),
+                "products": detailed_products
+            },
+            "summary": {
+                "total_batches": total_batches,
+                "total_plots": total_plots,
+                "total_area": total_area,
+                "total_products": total_products,
+                "eudr_relevant_batches": eudr_relevant_batches,
+                "high_risk_plots": high_risk_plots,
+                "compliance_rate": (eudr_relevant_batches / total_batches * 100) if total_batches > 0 else 0
+            }
+        }
+
+        return response_data
+
+    except Exception as e:
+        print(f"Error in get_purchase_order_response: {str(e)}")
+        frappe.log_error(frappe.get_traceback(), "get_purchase_order_response error")
+        frappe.throw(_("Failed to retrieve purchase order data"))
+
+@frappe.whitelist()
+def get_customer_purchase_order_plots(request_id):
+    """Get purchase order plots that customers are allowed to view"""
+    user = frappe.session.user
+    if user == "Guest":
+        frappe.throw(_("Not logged in"), frappe.PermissionError)
+
+    try:
+        customer, supplier = _get_party_from_user(user)
+        
+        # Get the request
+        request_doc = frappe.get_doc("Request", request_id)
+        
+        # Only the customer of this request can view
+        if request_doc.customer != customer:
+            frappe.throw(_("Not authorized to view this request"), frappe.PermissionError)
+
+        if request_doc.request_type != "purchase_order":
+            frappe.throw(_("This is not a purchase order request"))
+
+        if request_doc.status != "Accepted":
+            return {"plots": [], "message": "Purchase order not yet accepted by supplier"}
+
+        if not request_doc.get("purchase_order_data"):
+            return {"plots": [], "message": "Purchase order data not yet submitted"}
+
+        # Parse PO data to get shared plot IDs
+        try:
+            po_data = json.loads(request_doc.purchase_order_data)
+            plot_ids = po_data.get("selected_plots", [])
+        except:
+            return {"plots": [], "message": "Error reading purchase order data"}
+
+        if not plot_ids:
+            return {"plots": [], "message": "No plots shared in this purchase order"}
+
+        # Get the plot details that were shared with this customer
+        plots = frappe.get_all("Land Plot",
+            filters={"name": ["in", plot_ids]},
+            fields=[
+                "name as id", "plot_id", "plot_name", "country", "area",
+                "coordinates", "commodities", "deforestation_percentage",
+                "deforested_area"
+            ]
+        )
+
+        # Process commodities
+        for plot in plots:
+            if plot.get("commodities") and isinstance(plot["commodities"], str):
+                try:
+                    plot["commodities"] = json.loads(plot["commodities"])
+                except:
+                    plot["commodities"] = plot["commodities"].split(",") if plot["commodities"] else []
+            elif not plot.get("commodities"):
+                plot["commodities"] = []
+
+        return {
+            "plots": plots,
+            "request": {
+                "id": request_doc.name,
+                "purchase_order_number": request_doc.get("purchase_order_number"),
+                "supplier": request_doc.supplier,
+                "status": request_doc.status
+            }
+        }
+
+    except Exception as e:
+        print(f"Error in get_customer_purchase_order_plots: {str(e)}")
+        frappe.log_error(frappe.get_traceback(), "get_customer_purchase_order_plots error")
+        return {"plots": [], "message": "Failed to load plot data"}

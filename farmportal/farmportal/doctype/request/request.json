@@ -15,7 +15,9 @@
   "response_message",
   "shared_plots_json",
   "requested_by",
-  "responded_by"
+  "responded_by",
+  "purchase_order_number",
+  "purchase_order_data"
  ],
  "fields": [
   {
@@ -74,11 +76,24 @@
    "fieldtype": "Link",
    "label": "Responded By",
    "options": "User"
+  },
+  {
+   "bold": 1,
+   "fieldname": "purchase_order_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Purchase Order Number\t"
+  },
+  {
+   "fieldname": "purchase_order_data",
+   "fieldtype": "Long Text",
+   "hidden": 1,
+   "label": "Purchase Order Data"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-08-27 12:17:34.479882",
+ "modified": "2025-09-29 10:17:43.990462",
  "modified_by": "Administrator",
  "module": "Farmportal",
  "name": "Request",

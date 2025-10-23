@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "igneous-nucleus-442113-m1",
+  "private_key_id": "510b370f7be575a9aa85f2995f99cd67872cbace",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQD0kTebH7+tQhkm\n/z/leBzCCOV99O/5t/RwKNdRpY4B7Hpj+wbBYY7sEE+06PrE5x812luaWnAvIeEt\n7f8BVESVzRP3CZH6ClMBbA+A4pmgMMueg+MbCkwrSyVL3mwAEk39HWo/UR6or2TA\nbmW9pu/tZN5P3xkIKtVJqGiVcPk7W6Px9adTco00bELb3rj124GdZIpK6coB2+Gu\nRUTSMAgNvTSeX8g6+XZ3sOZJ5RDCb4khoIQudidBsA3XLU3YJFTdw8iNtVvxRhsQ\nfXaqDphtqXTAi+t8sJSPC/TMpPBe79pjLrxi7Y5hKI2cRe53ayfvg295vRUFfCcQ\n37hAEk0PAgMBAAECggEAHSDMlCOwYxTLxRrCg/SNzEhd+OX6zO2tZcxfdMB4jN8a\n5pyHvfF+IbyBmcTj1R7H11Sl81jRIrPwy1UcuY5NSuAtgA86PSMMps81e37BmFQn\ndD42BsrvrnpZO1OG3m1Pr5VYyajCM4oMQGUFphRjYA1S8wVZyGC9nXO63Q2jCYAR\niIQ0shuTj4AdygNAkDu+FMJgwdazFvQ/WB9UwK4N3sAd8Gc/r5ZtYYItBhdtLjIp\nCuxZyhUghnlUXjAIeToELaCnp1JuVjqytYP7+G3q8xYE3bpZD9GdHfQ/zWXVSkKc\nncnwXDVp2U3Evy/p2ejA3z+JhJWxK7JXZFgnnR4EXQKBgQD7iJOS1cqFiUMxaBvY\nP4p2c1fjgfPgPUX7x1MK4/qTcoUATppCg3IQ8OEnxMEO7Q+7dRV1WH6DCn1CKIMa\nsOU6kz2iH708ge+0s+7VVIc12fxFe1zzLZrBl+ZlljbmcrSKT5mSWUDd/dhJq7T+\nJjauKjP6SGjZL5yqyHkhV+CpcwKBgQD46Pk4R2aLYWB8e3NscidQpTzc9YzQ99IF\ntBaNsdXM3tkiiOYBVeuPkzDOmTKont7FSqFN00wO847+iLi1Folb7iwL5bF9CIyh\n4b2x5kzYf+76T46MZmoyjRnLC++2pavcb6jWdxgVCTcbrq/2vCMupfWExHe2TfXR\nTc+PE27W9QKBgQCp5vsnt9lwkeMdQGFulJ0GnarENkdxNHJNO7pQJOZhKn3EU1PH\nkdo+rzanEjQFzQNPcCrqdLgf87ngMlU8djigdEyxchb1BB/SQ6gT2WDrcy8AD/Ad\nIrTiB6TNAcZbqydgNZxaSoeSa6DpQl6jPVS6GC+746VO7uY4RensJ9vNGQKBgDol\nwsLA+1WoQ/AQruAwsrqGP3em7WSL4EZw0av8VWPs03Db5k99kPAThJ1e8JSvuH8C\ndjhGGkiL4WXY7r1vLFuLgkKtQA9jhebzY2tBz8Xr7RoQp85oxnpUuCfU/AUBIur2\nMs0XOUsAwhz3bCgJv3ZQUtDXTNgL0lc5BDn6YjRZAoGAHei9uj6VP4MmQctTklVa\nqkM1GMcn0C2oqmI8jmk3XqO6QDUie56LoGgQ+35BN+kGfJS52TUgCK+MrSPnsX+u\nDo/5N/3Waqaidda5n0xEOvOBNbaPvCScm0ho8qQol918V74Sc9MfLTPunw8iQd2f\nZ5G9XTSVgriJLLWWt8RFeOA=\n-----END PRIVATE KEY-----\n",
+  "client_email": "map-integration@igneous-nucleus-442113-m1.iam.gserviceaccount.com",
+  "client_id": "106545154111554188730",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/map-integration%40igneous-nucleus-442113-m1.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

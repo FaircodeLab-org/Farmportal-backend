@@ -1,0 +1,131 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:PLOT-{YYYY}-{#####}",
+ "creation": "2025-09-16 14:53:36.399550",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "plot_id",
+  "plot_name",
+  "supplier",
+  "country",
+  "area",
+  "latitude",
+  "longitude",
+  "coordinates",
+  "geojson",
+  "commodities",
+  "products",
+  "deforestation_percentage",
+  "deforested_area",
+  "deforested_polygons"
+ ],
+ "fields": [
+  {
+   "fieldname": "plot_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Plot ID",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "plot_name",
+   "fieldtype": "Data",
+   "label": "Plot name"
+  },
+  {
+   "fieldname": "supplier",
+   "fieldtype": "Link",
+   "label": "Supplier",
+   "options": "Supplier",
+   "reqd": 1
+  },
+  {
+   "fieldname": "country",
+   "fieldtype": "Data",
+   "label": "Country"
+  },
+  {
+   "fieldname": "area",
+   "fieldtype": "Float",
+   "label": "Area (hectares)\t",
+   "precision": "2"
+  },
+  {
+   "fieldname": "latitude",
+   "fieldtype": "Float",
+   "label": "Latitude",
+   "precision": "8"
+  },
+  {
+   "fieldname": "coordinates",
+   "fieldtype": "Long Text",
+   "label": "Coordinates (JSON)"
+  },
+  {
+   "fieldname": "geojson",
+   "fieldtype": "Long Text",
+   "label": "GeoJSON Data\t"
+  },
+  {
+   "fieldname": "commodities",
+   "fieldtype": "Small Text",
+   "label": "Commodities"
+  },
+  {
+   "fieldname": "products",
+   "fieldtype": "Table",
+   "label": "Products",
+   "options": "Land Plot Product"
+  },
+  {
+   "fieldname": "deforestation_percentage",
+   "fieldtype": "Float",
+   "label": "Deforestation %\t"
+  },
+  {
+   "fieldname": "deforested_area",
+   "fieldtype": "Float",
+   "label": "Deforested Area (ha)\t",
+   "precision": "2"
+  },
+  {
+   "fieldname": "deforested_polygons",
+   "fieldtype": "Long Text",
+   "label": "Deforested Polygons (JSON)\t"
+  },
+  {
+   "fieldname": "longitude",
+   "fieldtype": "Float",
+   "label": "Longitude",
+   "precision": "8"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-09-17 09:21:22.063119",
+ "modified_by": "Administrator",
+ "module": "Farmportal",
+ "name": "Land Plot",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

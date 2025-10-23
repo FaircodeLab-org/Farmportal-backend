@@ -1,0 +1,60 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-09-03 16:44:58.213348",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "question",
+  "input_type",
+  "options_raw",
+  "required",
+  "answer"
+ ],
+ "fields": [
+  {
+   "fieldname": "question",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Question",
+   "reqd": 1
+  },
+  {
+   "fieldname": "input_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Input type",
+   "options": "Radio\nText",
+   "reqd": 1
+  },
+  {
+   "fieldname": "options_raw",
+   "fieldtype": "Small Text",
+   "label": "Options raw"
+  },
+  {
+   "default": "0",
+   "fieldname": "required",
+   "fieldtype": "Check",
+   "label": "Required"
+  },
+  {
+   "fieldname": "answer",
+   "fieldtype": "Text",
+   "label": "Answer"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2025-09-03 16:54:43.445010",
+ "modified_by": "Administrator",
+ "module": "Farmportal",
+ "name": "Questionnaire Question",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
