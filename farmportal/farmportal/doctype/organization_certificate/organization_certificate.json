@@ -24,8 +24,7 @@
    "fieldname": "evidence_type",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Evidence type",
-   "reqd": 1
+   "label": "Evidence type"
   },
   {
    "fieldname": "valid_from",
@@ -51,7 +50,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2025-09-04 17:00:37.141349",
+ "modified": "2025-10-28 14:44:24.408377",
  "modified_by": "Administrator",
  "module": "Farmportal",
  "name": "Organization Certificate",

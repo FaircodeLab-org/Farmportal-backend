@@ -15,7 +15,9 @@
   "city",
   "country",
   "type_of_market_operator",
-  "user"
+  "user",
+  "section_break_yhyw",
+  "certificates"
  ],
  "fields": [
   {
@@ -78,11 +80,21 @@
    "fieldtype": "Link",
    "label": "User",
    "options": "User"
+  },
+  {
+   "fieldname": "section_break_yhyw",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "certificates",
+   "fieldtype": "Table",
+   "label": "Certificates",
+   "options": "Organization Certificate"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-10-27 15:22:01.169444",
+ "modified": "2025-10-28 14:51:55.384143",
  "modified_by": "Administrator",
  "module": "Farmportal",
  "name": "Organization Module",
