@@ -265,45 +265,125 @@
 #     doc.save(ignore_permissions=True)
 #     frappe.db.commit()
 #     return {"ok": True, "name": name, "file_url": doc.source_file}
+
+
+#old configuration for fetching earth engine-key frm file
+
+# import frappe
+# import json
+# import os
+# import ee
+# import uuid
+# from datetime import datetime
+# from frappe import _
+
+# # Earth Engine Configuration
+# CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+# PRIVATE_KEY_PATH = os.path.join(CURRENT_DIR, "earthengine-key.json")
+# SERVICE_ACCOUNT = 'map-integration@igneous-nucleus-442113-m1.iam.gserviceaccount.com'
+
+# # Initialize Earth Engine
+# def init_earth_engine():
+#     """Initialize Earth Engine with service account credentials"""
+#     try:
+#         if not ee.data._credentials:
+#             credentials = ee.ServiceAccountCredentials(SERVICE_ACCOUNT, PRIVATE_KEY_PATH)
+#             ee.Initialize(credentials, project='igneous-nucleus-442113-m1')
+#     except Exception as e:
+#         safe_log_error(f"Earth Engine initialization failed: {str(e)}")
+#         print(f"Earth Engine init failed: {e}")
+
+# def safe_log_error(message, title=None, method="API"):
+#     """Safely log errors with proper length handling"""
+#     try:
+#         MAX_LENGTH = 135  # Leave some buffer for 140 char limit
+#         if title:
+#             truncated_title = (title[:MAX_LENGTH - 3] + '...') if len(title) > MAX_LENGTH else title
+#         else:
+#             truncated_title = (message[:MAX_LENGTH - 3] + '...') if len(message) > MAX_LENGTH else message
+        
+#         # Use frappe's built-in logging
+#         frappe.log_error(message=message, title=truncated_title)
+#     except Exception as e:
+#         # If even logging fails, just print to console
+#         print(f"Logging failed: {str(e)}")
+#         print(f"Original error: {message}")
+
+# Earth Engine Configuration from site config
+
 import frappe
 import json
 import os
 import ee
 import uuid
+import tempfile
 from datetime import datetime
 from frappe import _
 
-# Earth Engine Configuration
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-PRIVATE_KEY_PATH = os.path.join(CURRENT_DIR, "earthengine-key.json")
-SERVICE_ACCOUNT = 'map-integration@igneous-nucleus-442113-m1.iam.gserviceaccount.com'
 
-# Initialize Earth Engine
+def get_ee_config():
+    """Get Earth Engine configuration from site config"""
+    return frappe.conf.get("earth_engine", {})
+
 def init_earth_engine():
-    """Initialize Earth Engine with service account credentials"""
+    """Initialize Earth Engine with service account credentials from site config"""
+    print("[DEBUG] Initializing Earth Engine...")  # [DEBUG]
     try:
-        if not ee.data._credentials:
-            credentials = ee.ServiceAccountCredentials(SERVICE_ACCOUNT, PRIVATE_KEY_PATH)
-            ee.Initialize(credentials, project='igneous-nucleus-442113-m1')
+        ee_config = get_ee_config()
+        
+        if not ee_config:
+            error_msg = "Earth Engine configuration not found in site_config.json"
+            safe_log_error(error_msg)
+            print(f"[DEBUG] {error_msg}")  # [DEBUG]
+            return
+        
+        service_account = ee_config.get("service_account")
+        project = ee_config.get("project")
+        private_key_json = ee_config.get("private_key")
+        
+        if not all([service_account, project, private_key_json]):
+            error_msg = "Incomplete Earth Engine configuration in site_config.json"
+            safe_log_error(error_msg)
+            print(f"[DEBUG] {error_msg}")  # [DEBUG]
+            return
+        
+        # Create temporary file for credentials (EE requires file path)
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_file:
+            json.dump(private_key_json, temp_file)
+            temp_key_path = temp_file.name
+        
+        try:
+            credentials = ee.ServiceAccountCredentials(service_account, temp_key_path)
+            try:
+                ee.Initialize(credentials, project=project)
+                print("[DEBUG] Earth Engine initialized successfully.")  # [DEBUG]
+            except Exception as e:
+                if "already been initialized" in str(e):
+                    print("[DEBUG] Earth Engine already initialized.")  # [DEBUG]
+                else:
+                    raise
+        finally:
+            # Clean up temporary file
+            if os.path.exists(temp_key_path):
+                os.unlink(temp_key_path)
+                
     except Exception as e:
         safe_log_error(f"Earth Engine initialization failed: {str(e)}")
-        print(f"Earth Engine init failed: {e}")
+        print(f"[DEBUG] Earth Engine initialization failed: {e}")  # [DEBUG]
 
 def safe_log_error(message, title=None, method="API"):
-    """Safely log errors with proper length handling"""
+    print(f"[DEBUG] Logging error: {message} (title={title}, method={method})")  # [DEBUG]
     try:
-        MAX_LENGTH = 135  # Leave some buffer for 140 char limit
+        MAX_LENGTH = 135
         if title:
             truncated_title = (title[:MAX_LENGTH - 3] + '...') if len(title) > MAX_LENGTH else title
         else:
             truncated_title = (message[:MAX_LENGTH - 3] + '...') if len(message) > MAX_LENGTH else message
-        
-        # Use frappe's built-in logging
         frappe.log_error(message=message, title=truncated_title)
     except Exception as e:
-        # If even logging fails, just print to console
-        print(f"Logging failed: {str(e)}")
-        print(f"Original error: {message}")
+        print(f"[DEBUG] Logging failed: {str(e)}")  # [DEBUG]
+        print(f"[DEBUG] Original error: {message}")  # [DEBUG]
+
 
 def generate_unique_plot_id(base_id=None, supplier=None):
     """Generate a unique plot ID"""

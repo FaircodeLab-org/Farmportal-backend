@@ -8,6 +8,30 @@ app_license = "mit"
 override_whitelisted_methods = {
 }
 
+# def override_cors_headers():
+#     import frappe
+    
+#     allowed_origins = [
+#         "http://localhost:3000",
+#         "http://localhost:5173",
+#         "https://farm-portal-2cpb.vercel.app",
+#         "https://c22aa1bb1a99.ngrok-free.app"
+#     ]
+    
+#     origin = frappe.get_request_header("Origin")
+    
+#     if origin in allowed_origins:
+#         frappe.local.response["http_status_code"] = 200
+#         frappe.local.response.headers.setdefault("Access-Control-Allow-Origin", origin)
+#         frappe.local.response.headers.setdefault("Access-Control-Allow-Credentials", "true")
+#         frappe.local.response.headers.setdefault("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+#         frappe.local.response.headers.setdefault("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Frappe-CSRF-Token")
+
+# # Add to hooks
+# before_request = ["farmportal.hooks.override_cors_headers"]
+
+
+
 # Apps
 # ------------------
 
