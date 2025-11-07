@@ -1,4 +1,6 @@
 import frappe
+from farmportal.api.cors_handler import add_cors_headers
+
 
 @frappe.whitelist()
 def me():
@@ -13,16 +15,31 @@ def me():
     employee = get_employee_for_user(user_id)
     supplier = get_supplier_for_user(user_doc)  # note: pass full doc for email
 
-    return {
+    # return {
+    #     "user": {
+    #         "name": user_doc.name,
+    #         "full_name": user_doc.full_name,
+    #         "email": user_doc.email,
+    #         "roles": roles,
+    #     },
+    #     "employee": employee,   # None or { name, employee_name }
+    #     "supplier": supplier,   # None or { name, supplier_name }
+    # }
+    result = {
         "user": {
             "name": user_doc.name,
             "full_name": user_doc.full_name,
             "email": user_doc.email,
             "roles": roles,
         },
-        "employee": employee,   # None or { name, employee_name }
-        "supplier": supplier,   # None or { name, supplier_name }
+        "employee": employee,
+        "supplier": supplier,
     }
+    
+    # ✅ Add CORS headers to response
+    add_cors_headers()
+    
+    return result
 
 
 def get_employee_for_user(user_id: str):
