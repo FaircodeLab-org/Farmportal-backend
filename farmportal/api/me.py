@@ -1,5 +1,4 @@
 import frappe
-from farmportal.api.cors_handler import add_cors_headers
 
 
 @frappe.whitelist()
