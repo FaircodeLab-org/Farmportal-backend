@@ -5,10 +5,45 @@ app_description = "Farm portal"
 app_email = "abdullamirshadcl@gmail.com"
 app_license = "mit"
 
+# ... your existing config ...
+
+
+# CORS Configuration - Add this section
 override_whitelisted_methods = {
+    "farmportal.api.me.me": "farmportal.api.me.me"
 }
 
-after_request = ["farmportal.api.cors_handler.add_cors_headers"]
+# Allow CORS for specific origins
+allow_cors_origins = ["https://farm-portal-2cpb.vercel.app"]
+
+# Add response headers to all requests
+response_headers = {
+    "Access-Control-Allow-Origin": "https://farm-portal-2cpb.vercel.app",
+    "Access-Control-Allow-Credentials": "true",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Frappe-CSRF-Token, Accept",
+}
+
+# Handle OPTIONS requests
+def on_request():
+    import frappe
+    if frappe.request.method == "OPTIONS":
+        frappe.local.response = frappe._dict({
+            "http_status_code": 200,
+            "message": "ok"
+        })
+        add_response_headers()
+        
+def add_response_headers():
+    import frappe
+    if frappe.local.response:
+        for key, value in response_headers.items():
+            frappe.local.response.setdefault("headers", {})[key] = value
+
+# Register hooks
+before_request = ["farmportal.hooks.on_request"]
+after_request = ["farmportal.hooks.add_response_headers"]
+
 
 
 
