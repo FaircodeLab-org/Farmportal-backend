@@ -10,7 +10,9 @@ app_license = "mit"
 
 # CORS Configuration - Add this section
 override_whitelisted_methods = {
-    "farmportal.api.me.me": "farmportal.api.me.me"
+    "farmportal.api.me.me": "farmportal.api.me.me",
+    "farmportal.custom_api.get_current_user": "farmportal.custom_api.get_current_user"  # Add this
+
 }
 
 # Allow CORS for specific origins
