@@ -26,7 +26,7 @@ def me():
     }
 
 
-
+@frappe.whitelist()
 def get_employee_for_user(user_id: str):
     """Standard ERPNext link: Employee.user_id -> User.name"""
     return frappe.db.get_value(
@@ -37,6 +37,7 @@ def get_employee_for_user(user_id: str):
     )
 
 
+@frappe.whitelist()
 def get_supplier_for_user(user_doc):
     """Find Supplier for a user via:
        1) Custom link fields on Supplier if present (user_id / user),
