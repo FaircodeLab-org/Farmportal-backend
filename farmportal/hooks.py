@@ -15,38 +15,48 @@ override_whitelisted_methods = {
 
 }
 
-# Allow CORS for specific origins
-allow_cors_origins = ["https://farm-portal-2cpb.vercel.app"]
+# # Allow CORS for specific origins
+# allow_cors_origins = ["https://farm-portal-2cpb.vercel.app"]
 
-# Add response headers to all requests
-response_headers = {
-    "Access-Control-Allow-Origin": "https://farm-portal-2cpb.vercel.app",
-    "Access-Control-Allow-Credentials": "true",
-    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Frappe-CSRF-Token, Accept",
-}
+# # Add response headers to all requests
+# response_headers = {
+#     "Access-Control-Allow-Origin": "https://farm-portal-2cpb.vercel.app",
+#     "Access-Control-Allow-Credentials": "true",
+#     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+#     "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Frappe-CSRF-Token, Accept",
+# }
 
-# Handle OPTIONS requests
-def on_request():
-    import frappe
-    if frappe.request.method == "OPTIONS":
-        frappe.local.response = frappe._dict({
-            "http_status_code": 200,
-            "message": "ok"
-        })
-        add_response_headers()
+# # Handle OPTIONS requests
+# def on_request():
+#     import frappe
+#     if frappe.request.method == "OPTIONS":
+#         frappe.local.response = frappe._dict({
+#             "http_status_code": 200,
+#             "message": "ok"
+#         })
+#         add_response_headers()
         
-def add_response_headers():
-    import frappe
-    if frappe.local.response:
-        for key, value in response_headers.items():
-            frappe.local.response.setdefault("headers", {})[key] = value
+# def add_response_headers():
+#     import frappe
+#     if frappe.local.response:
+#         for key, value in response_headers.items():
+#             frappe.local.response.setdefault("headers", {})[key] = value
 
-# Register hooks
-before_request = ["farmportal.hooks.on_request"]
-after_request = ["farmportal.hooks.add_response_headers"]
+# # Register hooks
+# before_request = ["farmportal.hooks.on_request"]
+# after_request = ["farmportal.hooks.add_response_headers"]
 
+def boot_session(bootinfo):
+    """Set cookie settings for cross-origin"""
+    frappe.local.cookie_manager.set_cookie(
+        "sid", frappe.session.sid,
+        httponly=True,
+        samesite="None",
+        secure=True
+    )
 
+# Add to hooks
+boot_session = "farmportal.hooks.boot_session"
 
 
 
