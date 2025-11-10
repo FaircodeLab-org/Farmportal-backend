@@ -1,6 +1,6 @@
 import frappe
 
-@frappe.whitelist(allow_guest=False)
+@frappe.whitelist()
 def get_current_user():
     """Return info about the currently logged-in user, roles, and linked Employee/Supplier."""
     user_id = frappe.session.user
@@ -24,7 +24,9 @@ def get_current_user():
         "supplier": supplier,
     }
 
+
 def get_employee_for_user(user_id: str):
+    """Standard ERPNext link: Employee.user_id -> User.name"""
     return frappe.db.get_value(
         "Employee",
         {"user_id": user_id},
@@ -32,7 +34,10 @@ def get_employee_for_user(user_id: str):
         as_dict=True
     )
 
+
 def get_supplier_for_user(user_doc):
+    """Find Supplier for a user via custom fields or Contact linkage"""
+    # Try custom field approach first
     for fieldname in ("user_id", "user"):
         try:
             sup = frappe.db.get_value(
@@ -46,6 +51,7 @@ def get_supplier_for_user(user_doc):
         except Exception:
             pass
 
+    # Standard ERPNext: Contact -> Dynamic Link -> Supplier
     if not user_doc.email:
         return None
 

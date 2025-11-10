@@ -10,10 +10,11 @@ app_license = "mit"
 
 # CORS Configuration - Add this section
 override_whitelisted_methods = {
-    "farmportal.api.me.me": "farmportal.api.me.me",
-    "farmportal.custom_api.get_current_user": "farmportal.custom_api.get_current_user"  # Add this
-
+    "farmportal.auth_helper.login_and_get_api_keys": "farmportal.auth_helper.login_and_get_api_keys",
+    "farmportal.auth_helper.regenerate_api_keys": "farmportal.auth_helper.regenerate_api_keys",
+    "farmportal.custom_api.get_current_user": "farmportal.custom_api.get_current_user"
 }
+
 
 # # Allow CORS for specific origins
 # allow_cors_origins = ["https://farm-portal-2cpb.vercel.app"]
@@ -46,17 +47,17 @@ override_whitelisted_methods = {
 # before_request = ["farmportal.hooks.on_request"]
 # after_request = ["farmportal.hooks.add_response_headers"]
 
-def boot_session(bootinfo):
-    """Set cookie settings for cross-origin"""
-    frappe.local.cookie_manager.set_cookie(
-        "sid", frappe.session.sid,
-        httponly=True,
-        samesite="None",
-        secure=True
-    )
+# def boot_session(bootinfo):
+#     """Set cookie settings for cross-origin"""
+#     frappe.local.cookie_manager.set_cookie(
+#         "sid", frappe.session.sid,
+#         httponly=True,
+#         samesite="None",
+#         secure=True
+#     )
 
-# Add to hooks
-boot_session = "farmportal.hooks.boot_session"
+# # Add to hooks
+# boot_session = "farmportal.hooks.boot_session"
 
 
 
