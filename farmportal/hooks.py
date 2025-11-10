@@ -5,8 +5,22 @@ app_description = "Farm portal"
 app_email = "abdullamirshadcl@gmail.com"
 app_license = "mit"
 
-# ... your existing config ...
+# your_app/hooks.py
 
+website_route_rules = [
+    {"from_route": "/browse-suppliers", "to_route": "/app"},
+    {"from_route": "/browse-suppliers/<path:app_path>", "to_route": "/app"},
+    {"from_route": "/requests", "to_route": "/app"},
+    {"from_route": "/requests/<path:request_id>", "to_route": "/app"},
+    {"from_route": "/land-plots", "to_route": "/app"},
+    {"from_route": "/products", "to_route": "/app"},
+    {"from_route": "/map", "to_route": "/app"},
+    {"from_route": "/questionnaires", "to_route": "/app"},
+    {"from_route": "/profile", "to_route": "/app"},
+    {"from_route": "/organization-profile", "to_route": "/app"},
+    {"from_route": "/risk-dashboard", "to_route": "/app"},
+    {"from_route": "/shared-plots/<path:request_id>", "to_route": "/app"},
+]
 
 # CORS Configuration - Add this section
 override_whitelisted_methods = {
