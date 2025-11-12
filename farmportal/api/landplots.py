@@ -915,6 +915,7 @@ def recalculate_deforestation(plot_name):
         frappe.throw(_("Error calculating deforestation: {0}").format(str(e)))
 
 @frappe.whitelist()
+@frappe.whitelist()
 def delete_land_plot(name):
     """Delete a land plot"""
     user = frappe.session.user
@@ -925,15 +926,44 @@ def delete_land_plot(name):
     if not supplier:
         frappe.throw(_("Only Suppliers can delete land plots"), frappe.PermissionError)
 
+    # ✅ Add ignore_permissions=True to bypass doctype-level permission check
     doc = frappe.get_doc("Land Plot", name)
     
+    # ✅ Manual validation - check if this user owns the land plot
     if doc.supplier != supplier:
-        frappe.throw(_("Access denied"), frappe.PermissionError)
+        frappe.throw(_("Access denied: You can only delete your own land plots"), frappe.PermissionError)
     
-    frappe.delete_doc("Land Plot", name)
+    # ✅ Use ignore_permissions=True when deleting
+    frappe.delete_doc("Land Plot", name, ignore_permissions=True)
     frappe.db.commit()
     
-    return {"success": True}
+    return {"success": True, "message": _("Land plot deleted successfully")}
+
+    
+@frappe.whitelist()
+def delete_land_plot(name):
+    """Delete a land plot"""
+    user = frappe.session.user
+    if user == "Guest":
+        frappe.throw(_("Not logged in"), frappe.PermissionError)
+
+    customer, supplier = _get_party_from_user(user)
+    if not supplier:
+        frappe.throw(_("Only Suppliers can delete land plots"), frappe.PermissionError)
+
+    # ✅ Add ignore_permissions=True to bypass doctype-level permission check
+    doc = frappe.get_doc("Land Plot", name)
+    
+    # ✅ Manual validation - check if this user owns the land plot
+    if doc.supplier != supplier:
+        frappe.throw(_("Access denied: You can only delete your own land plots"), frappe.PermissionError)
+    
+    # ✅ Use ignore_permissions=True when deleting
+    frappe.delete_doc("Land Plot", name, ignore_permissions=True)
+    frappe.db.commit()
+    
+    return {"success": True, "message": _("Land plot deleted successfully")}
+
 
 # Keep your existing functions for file import
 @frappe.whitelist()
