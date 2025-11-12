@@ -47,10 +47,10 @@ def get_suppliers(search=None, limit=100):
     if user == "Guest":
         frappe.throw(_("Not logged in"), frappe.PermissionError)
 
-    # Build filters - only suppliers with a user linked
+    # Build filters - only suppliers with custom_user field populated
     filters = {
         "disabled": 0,
-        "user": ["!=", ""]  # ✅ Only suppliers with user field populated
+        "custom_user": ["!=", ""]  # ✅ Changed from "user" to "custom_user"
     }
     
     # Handle search with OR condition
@@ -73,7 +73,7 @@ def get_suppliers(search=None, limit=100):
         "Supplier",
         filters=filters,
         or_filters=or_filters,
-        fields=["name", "supplier_name", "user"],  # ✅ Include user field
+        fields=["name", "supplier_name", "custom_user"],  # ✅ Changed field name
         limit_page_length=page_limit,
         order_by="supplier_name asc"
     )
@@ -84,7 +84,7 @@ def get_suppliers(search=None, limit=100):
             "_id": r["name"],
             "name": r["name"],
             "companyName": r.get("supplier_name") or r["name"],
-            "user": r.get("user")  # ✅ Include linked user
+            "user": r.get("custom_user")  # ✅ Changed field name
         }
         for r in rows
     ]
