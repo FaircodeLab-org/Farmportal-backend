@@ -705,7 +705,8 @@ def create_single_plot_internal(plot_data, supplier, calculate_deforestation=Tru
     
     # Calculate deforestation data if coordinates are provided
     deforestation_data = None
-    if calculate_deforestation and plot_data.get('coordinates'):
+    # if calculate_deforestation and plot_data.get('coordinates'):
+    if plot_data.get('coordinates'):
         coordinates = plot_data.get('coordinates')
         if isinstance(coordinates, str):
             try:
@@ -840,13 +841,12 @@ def bulk_create_land_plots(plots_data, calculate_deforestation=True):
     failed_plots = []
     
     # Initialize Earth Engine once for all plots
-    if calculate_deforestation:
-        init_earth_engine()
+    init_earth_engine()
     
     for i, plot_data in enumerate(plots):
         try:
             # Create plot with unique ID generation
-            result = create_single_plot_internal(plot_data, supplier, calculate_deforestation)
+            result = create_single_plot_internal(plot_data, supplier, True)
             created_plots.append(result)
             frappe.db.commit()  # Commit each successful creation
             
