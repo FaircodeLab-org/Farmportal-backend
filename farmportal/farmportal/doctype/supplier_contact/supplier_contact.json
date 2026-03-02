@@ -1,0 +1,63 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-03-02 11:25:53.979368",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "contact_person_name",
+  "designation",
+  "land_phone",
+  "mobile",
+  "email",
+  "is_qc_contact"
+ ],
+ "fields": [
+  {
+   "fieldname": "contact_person_name",
+   "fieldtype": "Data",
+   "label": "Contact Person Name"
+  },
+  {
+   "fieldname": "designation",
+   "fieldtype": "Data",
+   "label": "Designation"
+  },
+  {
+   "fieldname": "land_phone",
+   "fieldtype": "Data",
+   "label": "Land Phone"
+  },
+  {
+   "fieldname": "mobile",
+   "fieldtype": "Data",
+   "label": "Mobile / WhatsApp"
+  },
+  {
+   "fieldname": "email",
+   "fieldtype": "Data",
+   "label": "Email"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_qc_contact",
+   "fieldtype": "Check",
+   "label": "Is QC Contact"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-03-02 11:35:20.489922",
+ "modified_by": "Administrator",
+ "module": "Farmportal",
+ "name": "Supplier Contact",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

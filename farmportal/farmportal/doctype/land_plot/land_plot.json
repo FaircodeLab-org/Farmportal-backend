@@ -7,10 +7,12 @@
  "engine": "InnoDB",
  "field_order": [
   "plot_id",
-  "plot_name",
+  "farmer_name",
   "supplier",
+  "state_province",
   "country",
   "area",
+  "yield_dried_mt",
   "latitude",
   "longitude",
   "coordinates",
@@ -31,9 +33,16 @@
    "unique": 1
   },
   {
-   "fieldname": "plot_name",
+   "fieldname": "farmer_name",
    "fieldtype": "Data",
-   "label": "Plot name"
+   "label": "Farmer name"
+  },
+  {
+   "fieldname": "state_province",
+   "fieldtype": "Data",
+   "label": "State/Province",
+   "options": "Supplier",
+   "reqd": 1
   },
   {
    "fieldname": "supplier",
@@ -51,6 +60,12 @@
    "fieldname": "area",
    "fieldtype": "Float",
    "label": "Area (hectares)\t",
+   "precision": "2"
+  },
+  {
+   "fieldname": "yield_dried_mt",
+   "fieldtype": "Float",
+   "label": "Yield Dried (MT)",
    "precision": "2"
   },
   {
@@ -105,7 +120,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-09-17 09:21:22.063119",
+ "modified": "2026-03-02 09:43:04.777891",
  "modified_by": "Administrator",
  "module": "Farmportal",
  "name": "Land Plot",
@@ -125,6 +140,7 @@
    "write": 1
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": []

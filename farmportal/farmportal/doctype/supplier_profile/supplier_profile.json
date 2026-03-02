@@ -1,0 +1,225 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-03-02 11:05:25.722176",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "basic_info_section",
+  "organisation_name",
+  "country_of_registration",
+  "registered_address",
+  "column_break_gidl",
+  "year_established",
+  "nature_of_business",
+  "contact_details_section",
+  "contact_details",
+  "registration_and_compliance_section",
+  "business_registration_number",
+  "vat_number",
+  "column_break_vmhn",
+  "eori_number",
+  "tin",
+  "kyc_documents_section",
+  "supplier_kyc",
+  "business_details_section",
+  "products",
+  "banking_details_section",
+  "bank_name",
+  "branch",
+  "swift_code",
+  "column_break_kbwi",
+  "account_name",
+  "account_number",
+  "declaration_section_section",
+  "authorized_signatory",
+  "designation",
+  "date",
+  "company_seal"
+ ],
+ "fields": [
+  {
+   "fieldname": "basic_info_section",
+   "fieldtype": "Section Break",
+   "label": "Basic Info"
+  },
+  {
+   "fieldname": "organisation_name",
+   "fieldtype": "Data",
+   "label": "Organisation Name"
+  },
+  {
+   "fieldname": "country_of_registration",
+   "fieldtype": "Link",
+   "label": "Country of Registration",
+   "options": "Country"
+  },
+  {
+   "fieldname": "registered_address",
+   "fieldtype": "Small Text",
+   "label": "Registered Address"
+  },
+  {
+   "fieldname": "year_established",
+   "fieldtype": "Int",
+   "label": "Year of Establishment"
+  },
+  {
+   "fieldname": "nature_of_business",
+   "fieldtype": "Data",
+   "label": "Nature of Business"
+  },
+  {
+   "fieldname": "contact_details_section",
+   "fieldtype": "Section Break",
+   "label": "Contact Details"
+  },
+  {
+   "fieldname": "contact_details",
+   "fieldtype": "Table",
+   "label": "Contact details",
+   "options": "Supplier Contact"
+  },
+  {
+   "fieldname": "registration_and_compliance_section",
+   "fieldtype": "Section Break",
+   "label": "Registration and Compliance"
+  },
+  {
+   "fieldname": "business_registration_number",
+   "fieldtype": "Data",
+   "label": "Business Registration Number"
+  },
+  {
+   "fieldname": "vat_number",
+   "fieldtype": "Data",
+   "label": "VAT Number"
+  },
+  {
+   "fieldname": "eori_number",
+   "fieldtype": "Data",
+   "label": "EORI Number"
+  },
+  {
+   "fieldname": "tin",
+   "fieldtype": "Data",
+   "label": "TIN"
+  },
+  {
+   "fieldname": "kyc_documents_section",
+   "fieldtype": "Section Break",
+   "label": "KYC Documents"
+  },
+  {
+   "fieldname": "supplier_kyc",
+   "fieldtype": "Table",
+   "label": "Supplier KYC",
+   "options": "Supplier KYC"
+  },
+  {
+   "fieldname": "business_details_section",
+   "fieldtype": "Section Break",
+   "label": "Business Details"
+  },
+  {
+   "fieldname": "products",
+   "fieldtype": "Table",
+   "label": "Products",
+   "options": "Supplier Products"
+  },
+  {
+   "fieldname": "banking_details_section",
+   "fieldtype": "Section Break",
+   "label": "Banking Details"
+  },
+  {
+   "fieldname": "bank_name",
+   "fieldtype": "Data",
+   "label": "Bank Name"
+  },
+  {
+   "fieldname": "branch",
+   "fieldtype": "Data",
+   "label": "Branch"
+  },
+  {
+   "fieldname": "swift_code",
+   "fieldtype": "Data",
+   "label": "SWIFT Code"
+  },
+  {
+   "fieldname": "account_name",
+   "fieldtype": "Data",
+   "label": "Account Name"
+  },
+  {
+   "fieldname": "account_number",
+   "fieldtype": "Data",
+   "label": "Account Number"
+  },
+  {
+   "fieldname": "column_break_gidl",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_vmhn",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_kbwi",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "declaration_section_section",
+   "fieldtype": "Section Break",
+   "label": "Declaration Section"
+  },
+  {
+   "fieldname": "authorized_signatory",
+   "fieldtype": "Data",
+   "label": "Authorized Signatory"
+  },
+  {
+   "fieldname": "designation",
+   "fieldtype": "Data",
+   "label": "Designation"
+  },
+  {
+   "fieldname": "date",
+   "fieldtype": "Data",
+   "label": "Date"
+  },
+  {
+   "fieldname": "company_seal",
+   "fieldtype": "Attach",
+   "label": "Company Seal"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-03-02 12:55:50.138139",
+ "modified_by": "Administrator",
+ "module": "Farmportal",
+ "name": "Supplier Profile",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

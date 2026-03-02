@@ -653,7 +653,7 @@ def get_land_plots():
     plots = frappe.get_all("Land Plot", 
         filters={"supplier": supplier},
         fields=[
-            "name", "plot_id", "plot_name", "country", "area", 
+            "name", "plot_id", "farmer_name", "state_province", "country", "area", "yield_dried_mt",
             "coordinates", "geojson", "latitude", "longitude",
             "commodities", "deforestation_percentage", "deforested_area",
             "deforested_polygons"
@@ -726,13 +726,23 @@ def create_single_plot_internal(plot_data, supplier, calculate_deforestation=Tru
                 deforestation_data = None
     
     # Create the main document
-    doc = frappe.get_doc({
+    meta = frappe.get_meta("Land Plot")
+    plot_label = (
+        plot_data.get("farmer_name")
+        or plot_data.get("name")
+        or plot_data.get("plot_name")
+        or "Unnamed Plot"
+    )
+
+    doc_fields = {
         "doctype": "Land Plot",
         "plot_id": unique_plot_id,  # Use the generated unique ID
-        "plot_name": plot_data.get("name", "Unnamed Plot"),
+        "farmer_name": plot_label,
+        "state_province": plot_data.get("state_province", ""),
         "supplier": supplier,
         "country": plot_data.get("country", ""),
         "area": float(plot_data.get("area", 0)),
+        "yield_dried_mt": float(plot_data.get("yield_dried_mt")) if plot_data.get("yield_dried_mt") not in (None, "") else None,
         "latitude": float(plot_data.get("latitude")) if plot_data.get("latitude") else None,
         "longitude": float(plot_data.get("longitude")) if plot_data.get("longitude") else None,
         "coordinates": json.dumps(plot_data.get("coordinates", [])) if plot_data.get("coordinates") else None,
@@ -742,7 +752,11 @@ def create_single_plot_internal(plot_data, supplier, calculate_deforestation=Tru
         "deforestation_percentage": deforestation_data["deforestation_percent"] if deforestation_data else 0,
         "deforested_area": deforestation_data["loss_area_ha"] if deforestation_data else 0,
         "deforested_polygons": None  # Can be enhanced later
-    })
+    }
+    if meta.has_field("plot_name"):
+        doc_fields["plot_name"] = plot_label
+
+    doc = frappe.get_doc(doc_fields)
     
     # Add products
     for product_id in plot_data.get("products", []):
@@ -791,9 +805,15 @@ def update_land_plot(name, plot_data, recalculate_deforestation=False):
     
     # Update fields
     doc.plot_id = data.get("id") or data.get("plot_id", doc.plot_id)
-    doc.plot_name = data.get("name") or data.get("plot_name", doc.plot_name) 
+    plot_label = data.get("farmer_name") or data.get("name") or data.get("plot_name") or doc.farmer_name
+    doc.farmer_name = plot_label
+    if doc.meta.has_field("plot_name"):
+        doc.plot_name = plot_label
+    doc.state_province = data.get("state_province", doc.state_province)
     doc.country = data.get("country", doc.country)
     doc.area = data.get("area", doc.area)
+    if data.get("yield_dried_mt") not in (None, ""):
+        doc.yield_dried_mt = data.get("yield_dried_mt")
     doc.coordinates = json.dumps(data.get("coordinates", [])) if data.get("coordinates") else doc.coordinates
     doc.geojson = json.dumps(data.get("geojson")) if data.get("geojson") else doc.geojson
     doc.commodities = ",".join(data.get("commodities", [])) if data.get("commodities") else doc.commodities
