@@ -3,6 +3,7 @@
 import json
 import frappe
 from frappe import _
+from frappe.utils import now_datetime
 
 DT = "Request"
 
@@ -1019,9 +1020,13 @@ def get_risk_dashboard_data():
             
             if supplier_name not in suppliers_data:
                 # Get supplier info
-                supplier_info = frappe.db.get_value("Supplier", supplier_name, 
-                    ["supplier_name", "country", "supplier_group"], as_dict=True)
-                
+                supplier_info = frappe.db.get_value(
+                    "Supplier",
+                    supplier_name,
+                    ["supplier_name", "country", "supplier_group"],
+                    as_dict=True
+                )
+
                 suppliers_data[supplier_name] = {
                     "name": supplier_name,
                     "supplier_name": supplier_info.get("supplier_name") if supplier_info else supplier_name,
@@ -1044,13 +1049,28 @@ def get_risk_dashboard_data():
                 
                 # Get plot details
                 if plot_ids:
+                    plot_meta = frappe.get_meta("Land Plot")
+                    plot_fields = [
+                        "name", "plot_id", "country", "area",
+                        "deforestation_percentage", "deforested_area", 
+                        "commodities", "coordinates"
+                    ]
+                    if plot_meta.has_field("farmer_name"):
+                        plot_fields.append("farmer_name")
+                    if plot_meta.has_field("plot_name"):
+                        plot_fields.append("plot_name")
+                    if plot_meta.has_field("custom_risk_mitigated"):
+                        plot_fields.append("custom_risk_mitigated")
+                    if plot_meta.has_field("custom_risk_mitigation_note"):
+                        plot_fields.append("custom_risk_mitigation_note")
+                    if plot_meta.has_field("custom_risk_mitigation_on"):
+                        plot_fields.append("custom_risk_mitigation_on")
+                    if plot_meta.has_field("custom_risk_mitigation_by"):
+                        plot_fields.append("custom_risk_mitigation_by")
+
                     plots = frappe.get_all("Land Plot", 
                         filters={"name": ["in", plot_ids]},
-                        fields=[
-                            "name", "plot_id", "plot_name", "country", "area",
-                            "deforestation_percentage", "deforested_area", 
-                            "commodities", "coordinates"
-                        ]
+                        fields=plot_fields
                     )
                     
                     for plot in plots:
@@ -1063,8 +1083,16 @@ def get_risk_dashboard_data():
                             risk_level = "high"
                         elif deforestation > 1:
                             risk_level = "medium"
+
+                        if plot.get("custom_risk_mitigated"):
+                            risk_level = "low"
                         
+                        plot_label = plot.get("farmer_name") or plot.get("plot_name") or plot.get("plot_id") or plot.get("name")
                         plot["risk_level"] = risk_level
+                        plot["mitigated"] = bool(plot.get("custom_risk_mitigated"))
+                        plot["mitigation_note"] = plot.get("custom_risk_mitigation_note")
+                        plot["mitigation_on"] = plot.get("custom_risk_mitigation_on")
+                        plot["mitigation_by"] = plot.get("custom_risk_mitigation_by")
                         
                         # ✅ DEDUPLICATION LOGIC
                         if plot_unique_id in suppliers_data[supplier_name]["unique_plots"]:
@@ -1081,7 +1109,7 @@ def get_risk_dashboard_data():
                             if request.creation > existing_plot["last_shared_date"]:
                                 existing_plot.update({
                                     "plot_id": plot.get("plot_id"),
-                                    "plot_name": plot.get("plot_name"),
+                                    "plot_name": plot_label,
                                     "country": plot.get("country"),
                                     "area": plot.get("area", 0),
                                     "deforestation_percentage": plot.get("deforestation_percentage", 0),
@@ -1089,6 +1117,10 @@ def get_risk_dashboard_data():
                                     "commodities": plot.get("commodities"),
                                     "coordinates": plot.get("coordinates"),
                                     "risk_level": risk_level,
+                                    "mitigated": plot.get("mitigated"),
+                                    "mitigation_note": plot.get("mitigation_note"),
+                                    "mitigation_on": plot.get("mitigation_on"),
+                                    "mitigation_by": plot.get("mitigation_by"),
                                     "last_shared_date": request.creation,
                                     "latest_request_id": request.name
                                 })
@@ -1097,7 +1129,7 @@ def get_risk_dashboard_data():
                             suppliers_data[supplier_name]["unique_plots"][plot_unique_id] = {
                                 "name": plot["name"],
                                 "plot_id": plot.get("plot_id"),
-                                "plot_name": plot.get("plot_name"),
+                                "plot_name": plot_label,
                                 "country": plot.get("country"),
                                 "area": plot.get("area", 0),
                                 "deforestation_percentage": plot.get("deforestation_percentage", 0),
@@ -1208,6 +1240,71 @@ def get_risk_dashboard_data():
         print(f"Error in get_risk_dashboard_data: {str(e)}")
         frappe.log_error(frappe.get_traceback(), "get_risk_dashboard_data error")
         return {"suppliers": [], "summary": {}}
+
+
+
+@frappe.whitelist(methods=["POST"])
+def submit_risk_mitigation(plot_name: str, note: str | None = None):
+    user = frappe.session.user
+    if user == "Guest":
+        frappe.throw(_("Not logged in"), frappe.PermissionError)
+
+    customer, supplier_link = _get_party_from_user(user)
+    if not customer:
+        frappe.throw(_("Only Customers can submit mitigation"), frappe.PermissionError)
+
+    if not plot_name:
+        frappe.throw(_("plot_name is required"))
+
+    if not frappe.db.exists("Land Plot", plot_name):
+        frappe.throw(_("Land Plot not found"))
+
+    # Ensure this customer has a request that includes this plot
+    requests_with_plots = frappe.db.sql(
+        """
+        SELECT r.name, r.shared_plots_json
+        FROM `tabRequest` r
+        WHERE r.customer = %s
+        AND r.shared_plots_json IS NOT NULL
+        AND r.shared_plots_json != ''
+        """,
+        (customer,),
+        as_dict=True
+    )
+
+    allowed = False
+    for req in requests_with_plots:
+        try:
+            plot_ids = json.loads(req.shared_plots_json or "[]")
+        except Exception:
+            plot_ids = []
+        if plot_name in plot_ids:
+            allowed = True
+            break
+
+    if not allowed:
+        frappe.throw(_("You are not allowed to mitigate this plot"), frappe.PermissionError)
+
+    meta = frappe.get_meta("Land Plot")
+    required_fields = [
+        "custom_risk_mitigated",
+        "custom_risk_mitigation_note",
+        "custom_risk_mitigation_on",
+        "custom_risk_mitigation_by",
+    ]
+    missing = [f for f in required_fields if not meta.has_field(f)]
+    if missing:
+        frappe.throw(_("Missing Land Plot fields: {0}. Please create these custom fields first.").format(", ".join(missing)))
+
+    doc = frappe.get_doc("Land Plot", plot_name)
+    doc.set("custom_risk_mitigated", 1)
+    doc.set("custom_risk_mitigation_note", note or "")
+    doc.set("custom_risk_mitigation_on", now_datetime())
+    doc.set("custom_risk_mitigation_by", user)
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+
+    return {"ok": True, "plot_name": plot_name}
 
 
 # Add to your requests.py file

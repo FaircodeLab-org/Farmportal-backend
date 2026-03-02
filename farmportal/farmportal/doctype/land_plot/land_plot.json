@@ -21,7 +21,11 @@
   "products",
   "deforestation_percentage",
   "deforested_area",
-  "deforested_polygons"
+  "deforested_polygons",
+  "custom_risk_mitigated",
+  "custom_risk_mitigation_note",
+  "custom_risk_mitigation_on",
+  "custom_risk_mitigation_by"
  ],
  "fields": [
   {
@@ -116,11 +120,33 @@
    "fieldtype": "Float",
    "label": "Longitude",
    "precision": "8"
+  },
+  {
+   "default": "0",
+   "fieldname": "custom_risk_mitigated",
+   "fieldtype": "Check",
+   "label": "Risk Mitigated"
+  },
+  {
+   "fieldname": "custom_risk_mitigation_note",
+   "fieldtype": "Small Text",
+   "label": "Risk Mitigation Note"
+  },
+  {
+   "fieldname": "custom_risk_mitigation_on",
+   "fieldtype": "Datetime",
+   "label": "Risk Mitigation On"
+  },
+  {
+   "fieldname": "custom_risk_mitigation_by",
+   "fieldtype": "Link",
+   "label": "Risk Mitigated By",
+   "options": "User"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-03-02 09:43:04.777891",
+ "modified": "2026-03-02 16:45:19.830118",
  "modified_by": "Administrator",
  "module": "Farmportal",
  "name": "Land Plot",
