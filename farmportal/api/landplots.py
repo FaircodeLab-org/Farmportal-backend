@@ -1020,3 +1020,119 @@ def finalize_import(name: str, total_plots: int = 0, log: str = None, status: st
     doc.save(ignore_permissions=True)
     frappe.db.commit()
     return {"ok": True, "name": name, "file_url": doc.source_file}
+
+
+@frappe.whitelist()
+def get_hubtrace_surveys():
+    """Fetch surveys with valid latitude/longitude for Hubtrace import."""
+    user = frappe.session.user
+    if user == "Guest":
+        frappe.throw(_("Not logged in"), frappe.PermissionError)
+
+    customer, supplier = _get_party_from_user(user)
+    if not supplier:
+        frappe.throw(_("Only Suppliers can import surveys"), frappe.PermissionError)
+
+    existing_plot_ids = set(
+        frappe.get_all("Land Plot", filters={"supplier": supplier}, pluck="plot_id") or []
+    )
+
+    rows = frappe.db.sql(
+        """
+        SELECT s.name AS survey_name, s.plot_number, s.survey_number, s.farmer_name, s.farm_id, b.latitude, b.longitude, b.idx
+        FROM `tabSurvey` s
+        JOIN `tabBoundary` b
+          ON b.parent = s.name
+          AND b.parenttype = 'Survey'
+          AND b.parentfield = 'farm_boundary'
+        WHERE b.latitude IS NOT NULL AND b.longitude IS NOT NULL
+        ORDER BY s.name, b.idx
+        """,
+        as_dict=True
+    )
+
+    seen = set()
+    results = []
+    for row in rows:
+        survey_name = row.get("survey_name")
+        if not survey_name or survey_name in seen:
+            continue
+        seen.add(survey_name)
+
+        plot_id = row.get("plot_number") or row.get("farm_id") or survey_name
+        latitude = row.get("latitude")
+        longitude = row.get("longitude")
+        if latitude is None or longitude is None:
+            continue
+
+        results.append({
+            "survey_name": survey_name,
+            "plot_id": plot_id,
+            "survey_number": row.get("survey_number"),
+            "farm_id": row.get("farm_id"),
+            "farmer_name": row.get("farmer_name"),
+            "latitude": float(latitude),
+            "longitude": float(longitude),
+            "imported": plot_id in existing_plot_ids
+        })
+
+    return {"data": results}
+
+
+@frappe.whitelist(methods=["POST"])
+def import_hubtrace_survey(survey_name: str):
+    """Create a Land Plot from a Survey (first boundary point)."""
+    user = frappe.session.user
+    if user == "Guest":
+        frappe.throw(_("Not logged in"), frappe.PermissionError)
+
+    customer, supplier = _get_party_from_user(user)
+    if not supplier:
+        frappe.throw(_("Only Suppliers can import surveys"), frappe.PermissionError)
+
+    if not survey_name:
+        frappe.throw(_("survey_name is required"))
+
+    if not frappe.db.exists("Survey", survey_name):
+        frappe.throw(_("Survey not found"))
+
+    survey = frappe.get_doc("Survey", survey_name)
+
+    plot_id = survey.get("plot_number") or survey.get("farm_id") or survey.name
+    farmer_name = survey.get("farmer_name") or survey.get("farm_person_name") or ""
+
+    boundary = survey.get("farm_boundary") or []
+    coords = []
+    for row in boundary:
+        if row.latitude is None or row.longitude is None:
+            continue
+        coords.append([float(row.longitude), float(row.latitude)])
+
+    if not coords:
+        frappe.throw(_("Survey has no valid latitude/longitude"))
+
+    # Close polygon if needed
+    if len(coords) > 2 and coords[0] != coords[-1]:
+        coords.append(coords[0])
+
+    if frappe.db.exists("Land Plot", {"plot_id": plot_id, "supplier": supplier}):
+        return {"ok": True, "already_exists": True, "plot_id": plot_id}
+
+    latitude = coords[0][1]
+    longitude = coords[0][0]
+
+    plot_data = {
+        "id": plot_id,
+        "farmer_name": farmer_name,
+        "name": farmer_name or plot_id,
+        "area": 0,
+        "latitude": latitude,
+        "longitude": longitude,
+        "coordinates": coords,
+        "commodities": []
+    }
+
+    result = create_single_plot_internal(plot_data, supplier, True)
+    frappe.db.commit()
+
+    return {"ok": True, "plot_id": result.get("plot_id"), "name": result.get("name")}
