@@ -1496,14 +1496,37 @@ def get_purchase_order_response(request_id):
         # Get detailed plot information
         detailed_plots = []
         if po_data.get("selected_plots"):
-            plots = frappe.get_all("Land Plot",
-                filters={"name": ["in", po_data["selected_plots"]]},
-                fields=[
-                    "name as id", "plot_id", "plot_name", "country", "area",
-                    "coordinates", "commodities", "deforestation_percentage",
-                    "deforested_area", "supplier"
-                ]
+            plot_ids = po_data.get("selected_plots") or []
+            plot_meta = frappe.get_meta("Land Plot")
+            has_plot_id = plot_meta.has_field("plot_id")
+            name_field = "farmer_name" if plot_meta.has_field("farmer_name") else ("plot_name" if plot_meta.has_field("plot_name") else None)
+
+            fields = [
+                "name as id",
+                "country",
+                "area",
+                "coordinates",
+                "commodities",
+                "deforestation_percentage",
+                "deforested_area",
+                "supplier"
+            ]
+            if has_plot_id:
+                fields.insert(1, "plot_id")
+            if name_field:
+                fields.insert(2 if has_plot_id else 1, f"{name_field} as plot_name")
+
+            plots = frappe.get_all(
+                "Land Plot",
+                filters={"name": ["in", plot_ids]},
+                fields=fields
             )
+            if not plots and has_plot_id:
+                plots = frappe.get_all(
+                    "Land Plot",
+                    filters={"plot_id": ["in", plot_ids]},
+                    fields=fields
+                )
             detailed_plots = plots
 
         # Get detailed product information  
@@ -1603,14 +1626,35 @@ def get_customer_purchase_order_plots(request_id):
             return {"plots": [], "message": "No plots shared in this purchase order"}
 
         # Get the plot details that were shared with this customer
-        plots = frappe.get_all("Land Plot",
+        plot_meta = frappe.get_meta("Land Plot")
+        has_plot_id = plot_meta.has_field("plot_id")
+        name_field = "farmer_name" if plot_meta.has_field("farmer_name") else ("plot_name" if plot_meta.has_field("plot_name") else None)
+
+        fields = [
+            "name as id",
+            "country",
+            "area",
+            "coordinates",
+            "commodities",
+            "deforestation_percentage",
+            "deforested_area"
+        ]
+        if has_plot_id:
+            fields.insert(1, "plot_id")
+        if name_field:
+            fields.insert(2 if has_plot_id else 1, f"{name_field} as plot_name")
+
+        plots = frappe.get_all(
+            "Land Plot",
             filters={"name": ["in", plot_ids]},
-            fields=[
-                "name as id", "plot_id", "plot_name", "country", "area",
-                "coordinates", "commodities", "deforestation_percentage",
-                "deforested_area"
-            ]
+            fields=fields
         )
+        if not plots and has_plot_id:
+            plots = frappe.get_all(
+                "Land Plot",
+                filters={"plot_id": ["in", plot_ids]},
+                fields=fields
+            )
 
         # Process commodities
         for plot in plots:
