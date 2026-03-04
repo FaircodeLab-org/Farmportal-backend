@@ -1336,9 +1336,25 @@ def get_purchase_order_details(request_id):
         po_number = request_doc.get("purchase_order_number") or "N/A"
 
         # Get supplier's existing data
-        plots = frappe.get_all("Land Plot",
+        plot_meta = frappe.get_meta("Land Plot")
+        has_plot_id = plot_meta.has_field("plot_id")
+        name_field = "farmer_name" if plot_meta.has_field("farmer_name") else ("plot_name" if plot_meta.has_field("plot_name") else None)
+
+        fields = [
+            "name as id",
+            "area",
+            "country",
+            "commodities"
+        ]
+        if has_plot_id:
+            fields.insert(1, "plot_id")
+        if name_field:
+            fields.insert(2 if has_plot_id else 1, f"{name_field} as plot_name")
+
+        plots = frappe.get_all(
+            "Land Plot",
             filters={"supplier": supplier},
-            fields=["name as id", "plot_id", "plot_name", "area", "country", "commodities"]
+            fields=fields
         )
         items = frappe.get_all(
             "Item",
