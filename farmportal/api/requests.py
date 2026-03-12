@@ -819,37 +819,101 @@ def get_shared_plots(request_id):
         if request_doc.customer != customer and request_doc.supplier != supplier:
             frappe.throw(_("Not permitted to view this request"), frappe.PermissionError)
 
-        # Get shared plots from the request using correct field name
-        shared_plots_json = request_doc.get("shared_plots_json")  # Make sure field name is correct
-        if not shared_plots_json:
-            print(f"⚠️ No shared plots found in shared_plots_json field")
-            return {"plots": [], "request": {"id": request_doc.name, "status": request_doc.status}}
+        plot_ids = []
 
-        try:
-            plot_ids = json.loads(shared_plots_json) if isinstance(shared_plots_json, str) else shared_plots_json
-            print(f"📍 Parsed plot IDs: {plot_ids}")
-        except Exception as parse_error:
-            print(f"❌ Error parsing shared plots JSON: {str(parse_error)}")
+        # 1) Shared plots JSON (land plot requests)
+        shared_plots_json = request_doc.get("shared_plots_json")
+        if shared_plots_json:
+            try:
+                parsed = json.loads(shared_plots_json) if isinstance(shared_plots_json, str) else shared_plots_json
+                if isinstance(parsed, list):
+                    plot_ids.extend(parsed)
+                else:
+                    plot_ids.append(parsed)
+                print(f"📍 Parsed plot IDs from shared_plots_json: {plot_ids}")
+            except Exception as parse_error:
+                try:
+                    import ast
+                    parsed = ast.literal_eval(shared_plots_json) if isinstance(shared_plots_json, str) else shared_plots_json
+                    if isinstance(parsed, list):
+                        plot_ids.extend(parsed)
+                    else:
+                        plot_ids.append(parsed)
+                    print(f"📍 Parsed plot IDs via literal_eval: {plot_ids}")
+                except Exception:
+                    print(f"❌ Error parsing shared plots JSON: {str(parse_error)}")
+                    raw = str(shared_plots_json)
+                    plot_ids.extend([p.strip().strip("'").strip('"') for p in raw.strip("[](){}").split(",") if p.strip()])
+                    print(f"📍 Parsed plot IDs via fallback split: {plot_ids}")
+
+        # 2) Purchase order data (selected plots)
+        if request_doc.purchase_order_data:
+            try:
+                po_data = json.loads(request_doc.purchase_order_data) if isinstance(request_doc.purchase_order_data, str) else request_doc.purchase_order_data
+                po_plots = (
+                    po_data.get("selected_plots")
+                    or po_data.get("selectedPlots")
+                    or po_data.get("plots")
+                    or []
+                )
+                if isinstance(po_plots, str):
+                    try:
+                        po_plots = json.loads(po_plots)
+                    except Exception:
+                        po_plots = [p.strip() for p in po_plots.split(",") if p.strip()]
+                if isinstance(po_plots, list) and po_plots and isinstance(po_plots[0], dict):
+                    po_plots = [p.get("id") or p.get("plot_id") or p.get("name") for p in po_plots]
+                    po_plots = [p for p in po_plots if p]
+                if isinstance(po_plots, list):
+                    plot_ids.extend(po_plots)
+            except Exception:
+                pass
+
+        # Deduplicate
+        seen = set()
+        plot_ids = [p for p in plot_ids if p and not (p in seen or seen.add(p))]
+
+        if not plot_ids:
+            print(f"⚠️ No shared plots found in shared_plots_json or purchase_order_data")
             return {"plots": [], "request": {"id": request_doc.name, "status": request_doc.status}}
 
         # Get the actual land plot data
         plots = []
         if plot_ids:
+            if isinstance(plot_ids, str):
+                plot_ids = [plot_ids]
+
+            plot_meta = frappe.get_meta("Land Plot")
+            has_plot_id = plot_meta.has_field("plot_id")
+            fields = [
+                "name as id",
+                "country",
+                "area",
+                "coordinates",
+                "commodities",
+                "deforestation_percentage",
+                "deforested_area"
+            ]
+            if has_plot_id:
+                fields.insert(1, "plot_id")
+            if plot_meta.has_field("plot_name"):
+                fields.append("plot_name")
+            if plot_meta.has_field("farmer_name"):
+                fields.append("farmer_name")
+
             plots = frappe.get_all(
                 "Land Plot",
                 filters={"name": ["in", plot_ids]},
-                fields=[
-                    "name as id",
-                    "plot_id", 
-                    "plot_name",
-                    "country",
-                    "area",
-                    "coordinates",
-                    "commodities",
-                    "deforestation_percentage",
-                    "deforested_area"
-                ]
+                fields=fields
             )
+
+            # Fallback: if stored IDs are plot_id instead of doc name
+            if not plots and has_plot_id:
+                plots = frappe.get_all(
+                    "Land Plot",
+                    filters={"plot_id": ["in", plot_ids]},
+                    fields=fields
+                )
             
             print(f"✅ Found {len(plots)} matching plots")
 
@@ -963,13 +1027,28 @@ def respond_to_request(request_id, action=None, message=None, shared_plots=None,
     if shared_plots:
         print(f"🔥 SHARED PLOTS RECEIVED: {shared_plots}")
         print(f"🔥 TYPE: {type(shared_plots)}")
-        
-        # Convert to JSON string
+
+        plots_list = None
         if isinstance(shared_plots, list):
-            plots_json = json.dumps(shared_plots)
+            plots_list = shared_plots
+        elif isinstance(shared_plots, str):
+            try:
+                plots_list = json.loads(shared_plots)
+            except Exception:
+                try:
+                    import ast
+                    plots_list = ast.literal_eval(shared_plots)
+                except Exception:
+                    plots_list = [shared_plots]
         else:
-            plots_json = str(shared_plots)
-            
+            plots_list = [shared_plots]
+
+        if isinstance(plots_list, str):
+            plots_list = [plots_list]
+        if not isinstance(plots_list, list):
+            plots_list = [plots_list]
+
+        plots_json = json.dumps(plots_list)
         doc.shared_plots_json = plots_json
         print(f"🔥 SETTING shared_plots_json TO: {plots_json}")
     else:
@@ -1128,11 +1207,7 @@ def get_risk_dashboard_data():
                         
                         # Calculate risk level
                         deforestation = plot.get("deforestation_percentage", 0)
-                        risk_level = "low"
-                        if deforestation > 5:
-                            risk_level = "high"
-                        elif deforestation > 1:
-                            risk_level = "medium"
+                        risk_level = "high" if deforestation > 0 else "low"
 
                         if plot.get("custom_risk_mitigated"):
                             risk_level = "low"
@@ -1315,14 +1390,19 @@ def submit_risk_mitigation(plot_name: str, note: str | None = None):
     if not frappe.db.exists("Land Plot", plot_name):
         frappe.throw(_("Land Plot not found"))
 
+    plot_doc = frappe.get_doc("Land Plot", plot_name)
+    plot_id_value = plot_doc.get("plot_id")
+
     # Ensure this customer has a request that includes this plot
     requests_with_plots = frappe.db.sql(
         """
-        SELECT r.name, r.shared_plots_json
+        SELECT r.name, r.shared_plots_json, r.purchase_order_data
         FROM `tabRequest` r
         WHERE r.customer = %s
-        AND r.shared_plots_json IS NOT NULL
-        AND r.shared_plots_json != ''
+        AND (
+            (r.shared_plots_json IS NOT NULL AND r.shared_plots_json != '')
+            OR (r.purchase_order_data IS NOT NULL AND r.purchase_order_data != '')
+        )
         """,
         (customer,),
         as_dict=True
@@ -1330,11 +1410,43 @@ def submit_risk_mitigation(plot_name: str, note: str | None = None):
 
     allowed = False
     for req in requests_with_plots:
+        plot_ids = []
         try:
-            plot_ids = json.loads(req.shared_plots_json or "[]")
+            if req.shared_plots_json:
+                parsed = json.loads(req.shared_plots_json) if isinstance(req.shared_plots_json, str) else req.shared_plots_json
+                if isinstance(parsed, list):
+                    plot_ids.extend(parsed)
+                else:
+                    plot_ids.append(parsed)
         except Exception:
-            plot_ids = []
-        if plot_name in plot_ids:
+            pass
+
+        if req.purchase_order_data:
+            try:
+                po_data = json.loads(req.purchase_order_data) if isinstance(req.purchase_order_data, str) else req.purchase_order_data
+                po_plots = (
+                    po_data.get("selected_plots")
+                    or po_data.get("selectedPlots")
+                    or po_data.get("plots")
+                    or []
+                )
+                if isinstance(po_plots, str):
+                    try:
+                        po_plots = json.loads(po_plots)
+                    except Exception:
+                        po_plots = [p.strip() for p in po_plots.split(",") if p.strip()]
+                if isinstance(po_plots, list) and po_plots and isinstance(po_plots[0], dict):
+                    po_plots = [p.get("id") or p.get("plot_id") or p.get("name") for p in po_plots]
+                    po_plots = [p for p in po_plots if p]
+                if isinstance(po_plots, list):
+                    plot_ids.extend(po_plots)
+            except Exception:
+                pass
+
+        if not plot_ids:
+            continue
+
+        if plot_name in plot_ids or (plot_id_value and plot_id_value in plot_ids):
             allowed = True
             break
 
@@ -1631,7 +1743,7 @@ def get_purchase_order_response(request_id):
         
         # EUDR compliance summary
         eudr_relevant_batches = len([b for b in po_data.get("batches", []) if b.get("eudrRelevant", True)])
-        high_risk_plots = len([p for p in detailed_plots if p.get("deforestation_percentage", 0) > 5])
+        high_risk_plots = len([p for p in detailed_plots if p.get("deforestation_percentage", 0) > 0])
 
         response_data = {
             "request": {
