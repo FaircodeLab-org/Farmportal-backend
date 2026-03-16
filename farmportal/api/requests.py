@@ -6,12 +6,139 @@ from frappe import _
 from frappe.utils import now_datetime, get_datetime
 
 DT = "Request"
+RISK_ANALYSIS_CACHE_VERSION = "hansen_sentinel_area_v2"
 
 # NEW: preferred user link fields per doctype (ordered by priority)
 USER_LINK_FIELDS = {
     "Customer": ["custom_user", "user_id", "user"],
     "Supplier": ["custom_user", "user_id", "user"],
 }
+
+def _risk_cache_keys(customer: str) -> dict:
+    versioned = f"{RISK_ANALYSIS_CACHE_VERSION}::{customer}"
+    return {
+        "analysis": f"risk_analysis_completed_on::{versioned}",
+        "analyzed": f"risk_analyzed_plots::{versioned}",
+        "progress": f"risk_analysis_progress::{versioned}",
+    }
+
+def _cache_get_json(key: str, default):
+    raw = frappe.cache().get_value(key)
+    if raw is None:
+        return default
+    if isinstance(raw, (dict, list)):
+        return raw
+    try:
+        return json.loads(raw)
+    except Exception:
+        return default
+
+def _cache_set_json(key: str, value):
+    frappe.cache().set_value(key, json.dumps(value))
+
+def _normalize_progress_payload(progress: dict | None):
+    payload = dict(progress or {})
+    status = str(payload.get("status") or "idle").lower()
+    total = int(payload.get("total") or 0)
+    processed = int(payload.get("processed") or 0)
+    processed = min(processed, total) if total > 0 else processed
+    percent = round((processed / total) * 100, 1) if total > 0 else (100.0 if status == "completed" else 0.0)
+    payload["status"] = status
+    payload["total"] = total
+    payload["processed"] = processed
+    payload["percent"] = percent
+    payload["updated"] = int(payload.get("updated") or 0)
+    payload["skipped"] = int(payload.get("skipped") or 0)
+    payload["failed"] = int(payload.get("failed") or 0)
+    payload["message"] = payload.get("message") or ""
+    return payload
+
+def _parse_request_plot_ids(request_row: dict) -> list[str]:
+    plot_ids = []
+
+    try:
+        if request_row.get("shared_plots_json"):
+            parsed = request_row["shared_plots_json"]
+            if isinstance(parsed, str):
+                parsed = json.loads(parsed)
+            if isinstance(parsed, list):
+                plot_ids.extend(parsed)
+            elif parsed:
+                plot_ids.append(parsed)
+    except Exception:
+        pass
+
+    try:
+        if request_row.get("purchase_order_data"):
+            po_data = request_row["purchase_order_data"]
+            if isinstance(po_data, str):
+                po_data = json.loads(po_data)
+            po_plots = (
+                po_data.get("selected_plots")
+                or po_data.get("selectedPlots")
+                or po_data.get("plots")
+                or []
+            )
+            if isinstance(po_plots, str):
+                try:
+                    po_plots = json.loads(po_plots)
+                except Exception:
+                    po_plots = [p.strip() for p in po_plots.split(",") if p.strip()]
+            if isinstance(po_plots, list) and po_plots and isinstance(po_plots[0], dict):
+                po_plots = [p.get("id") or p.get("plot_id") or p.get("name") for p in po_plots]
+                po_plots = [p for p in po_plots if p]
+            if isinstance(po_plots, list):
+                plot_ids.extend(po_plots)
+    except Exception:
+        pass
+
+    clean = []
+    seen = set()
+    for pid in plot_ids:
+        key = str(pid).strip()
+        if key and key not in seen:
+            seen.add(key)
+            clean.append(key)
+    return clean
+
+def _collect_pending_risk_plot_names(customer: str, analyzed_plot_names: set[str]) -> list[str]:
+    query = """
+        SELECT r.name, r.shared_plots_json, r.purchase_order_data
+        FROM `tabRequest` r
+        WHERE r.customer = %s
+        AND (
+            (r.shared_plots_json IS NOT NULL AND r.shared_plots_json != '')
+            OR (r.purchase_order_data IS NOT NULL AND r.purchase_order_data != '')
+        )
+    """
+    requests_with_plots = frappe.db.sql(query, (customer,), as_dict=True)
+
+    all_plot_ids = []
+    for req in requests_with_plots:
+        all_plot_ids.extend(_parse_request_plot_ids(req))
+
+    if not all_plot_ids:
+        return []
+
+    plot_meta = frappe.get_meta("Land Plot")
+    has_plot_id = plot_meta.has_field("plot_id")
+
+    matched_names = set()
+    by_name = frappe.get_all("Land Plot", filters={"name": ["in", all_plot_ids]}, fields=["name"])
+    matched_names.update([p.name for p in by_name])
+
+    unresolved_ids = [pid for pid in all_plot_ids if pid not in matched_names]
+    if has_plot_id and unresolved_ids:
+        by_plot_id = frappe.get_all("Land Plot", filters={"plot_id": ["in", unresolved_ids]}, fields=["name"])
+        matched_names.update([p.name for p in by_plot_id])
+
+    if not matched_names:
+        return []
+
+    pending = [name for name in matched_names if name not in analyzed_plot_names]
+    pending = [str(n).strip() for n in pending if n]
+    pending.sort()
+    return pending
 
 def _as_list(val):
     if not val:
@@ -1084,7 +1211,7 @@ def get_risk_dashboard_data():
             return {"suppliers": [], "summary": {}}
 
         # Risk analysis state: keep a per-customer set of already analyzed plot names.
-        analyzed_plots_cache_key = f"risk_analyzed_plots::{customer}"
+        analyzed_plots_cache_key = _risk_cache_keys(customer)["analyzed"]
         analyzed_plots_raw = frappe.cache().get_value(analyzed_plots_cache_key)
         analyzed_plot_names = set()
         if analyzed_plots_raw:
@@ -1403,9 +1530,174 @@ def get_risk_dashboard_data():
         return {"suppliers": [], "summary": {}}
 
 
+def _run_risk_analysis_job(customer: str, pending_names: list[str] | None = None):
+    """Background job worker for risk analysis."""
+    keys = _risk_cache_keys(customer)
+    progress = _normalize_progress_payload(_cache_get_json(keys["progress"], {}))
+    progress["status"] = "running"
+    progress["started_on"] = progress.get("started_on") or now_datetime().isoformat()
+    progress["updated_on"] = now_datetime().isoformat()
+    progress["message"] = "Risk analysis in progress"
+    _cache_set_json(keys["progress"], progress)
+
+    try:
+        from farmportal.api.landplots import calculate_deforestation_data, init_earth_engine
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "trigger_risk_analysis import error")
+        progress.update({
+            "status": "failed",
+            "updated_on": now_datetime().isoformat(),
+            "message": "Unable to load deforestation engine",
+        })
+        _cache_set_json(keys["progress"], progress)
+        return
+
+    try:
+        analyzed_raw = _cache_get_json(keys["analyzed"], []) or []
+        analyzed_plot_names = {str(p).strip() for p in analyzed_raw if p}
+
+        pending_names = pending_names or _collect_pending_risk_plot_names(customer, analyzed_plot_names)
+        if not pending_names:
+            progress.update({
+                "status": "completed",
+                "total": 0,
+                "processed": 0,
+                "updated": 0,
+                "skipped": 0,
+                "failed": 0,
+                "updated_on": now_datetime().isoformat(),
+                "completed_on": now_datetime().isoformat(),
+                "message": "No new plots to analyze",
+            })
+            _cache_set_json(keys["progress"], progress)
+            return
+
+        plots = frappe.get_all(
+            "Land Plot",
+            filters={"name": ["in", list(pending_names)]},
+            fields=["name", "plot_id", "coordinates", "area"],
+        )
+
+        total = len(plots)
+        updated = 0
+        skipped = 0
+        failed = 0
+        failed_plots = []
+
+        progress.update({
+            "status": "running",
+            "total": total,
+            "processed": 0,
+            "updated": 0,
+            "skipped": 0,
+            "failed": 0,
+            "updated_on": now_datetime().isoformat(),
+            "message": "Risk analysis in progress",
+        })
+        _cache_set_json(keys["progress"], progress)
+
+        init_earth_engine()
+
+        for idx, plot in enumerate(plots, start=1):
+            coords = plot.get("coordinates")
+            if isinstance(coords, str):
+                try:
+                    coords = json.loads(coords)
+                except Exception:
+                    coords = None
+
+            if not coords or not isinstance(coords, list):
+                skipped += 1
+            else:
+                try:
+                    stats = calculate_deforestation_data(
+                        coords,
+                        area_ha=plot.get("area"),
+                        ensure_init=False,
+                    )
+                    if not stats:
+                        failed += 1
+                        if len(failed_plots) < 20:
+                            failed_plots.append({"plot": plot.get("name"), "reason": "No stats returned"})
+                    else:
+                        frappe.db.set_value(
+                            "Land Plot",
+                            plot.get("name"),
+                            {
+                                "deforestation_percentage": stats.get("deforestation_percent", 0),
+                                "deforested_area": stats.get("loss_area_ha", 0),
+                            },
+                            update_modified=False,
+                        )
+                        updated += 1
+                        analyzed_plot_names.add(str(plot.get("name")).strip())
+                except Exception as e:
+                    failed += 1
+                    if len(failed_plots) < 20:
+                        failed_plots.append({"plot": plot.get("name"), "reason": str(e)})
+
+            # Update progress frequently for frontend polling.
+            progress.update({
+                "status": "running",
+                "total": total,
+                "processed": idx,
+                "updated": updated,
+                "skipped": skipped,
+                "failed": failed,
+                "updated_on": now_datetime().isoformat(),
+                "message": "Risk analysis in progress",
+            })
+            _cache_set_json(keys["progress"], progress)
+
+        frappe.db.commit()
+        frappe.cache().set_value(keys["analysis"], now_datetime().isoformat())
+        _cache_set_json(keys["analyzed"], sorted(analyzed_plot_names))
+
+        progress.update({
+            "status": "completed",
+            "total": total,
+            "processed": total,
+            "updated": updated,
+            "skipped": skipped,
+            "failed": failed,
+            "failed_plots": failed_plots,
+            "updated_on": now_datetime().isoformat(),
+            "completed_on": now_datetime().isoformat(),
+            "message": "Risk analysis completed",
+        })
+        _cache_set_json(keys["progress"], progress)
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Risk Analysis Background Job Error")
+        progress.update({
+            "status": "failed",
+            "updated_on": now_datetime().isoformat(),
+            "message": f"Risk analysis failed: {str(e)}",
+        })
+        _cache_set_json(keys["progress"], progress)
+
+
+@frappe.whitelist()
+def get_risk_analysis_progress():
+    """Get current risk analysis progress for logged-in customer."""
+    user = frappe.session.user
+    if user == "Guest":
+        frappe.throw(_("Not logged in"), frappe.PermissionError)
+
+    customer, _supplier = _get_party_from_user(user)
+    if not customer:
+        return {"status": "idle", "total": 0, "processed": 0, "percent": 0}
+
+    keys = _risk_cache_keys(customer)
+    progress = _normalize_progress_payload(_cache_get_json(keys["progress"], None))
+    if not progress:
+        return {"status": "idle", "total": 0, "processed": 0, "percent": 0}
+    return progress
+
+
 @frappe.whitelist(methods=["POST"])
 def trigger_risk_analysis():
-    """Recalculate deforestation metrics for plots shared with the current customer."""
+    """Queue risk analysis and return immediately; progress is exposed via polling endpoint."""
     user = frappe.session.user
     if user == "Guest":
         frappe.throw(_("Not logged in"), frappe.PermissionError)
@@ -1414,180 +1706,67 @@ def trigger_risk_analysis():
     if not customer:
         frappe.throw(_("Only Customers can analyze risk"), frappe.PermissionError)
 
-    analysis_cache_key = f"risk_analysis_completed_on::{customer}"
-    analyzed_plots_cache_key = f"risk_analyzed_plots::{customer}"
-    analyzed_plots_raw = frappe.cache().get_value(analyzed_plots_cache_key)
-    analyzed_plot_names = set()
-    if analyzed_plots_raw:
-        try:
-            parsed = json.loads(analyzed_plots_raw) if isinstance(analyzed_plots_raw, str) else analyzed_plots_raw
-            if isinstance(parsed, list):
-                analyzed_plot_names = {str(p).strip() for p in parsed if p}
-        except Exception:
-            analyzed_plot_names = set()
+    keys = _risk_cache_keys(customer)
+    progress = _normalize_progress_payload(_cache_get_json(keys["progress"], None))
 
-    try:
-        from farmportal.api.landplots import calculate_deforestation_data, init_earth_engine
-    except Exception:
-        frappe.log_error(frappe.get_traceback(), "trigger_risk_analysis import error")
-        frappe.throw(_("Unable to load deforestation engine"))
+    if progress and progress.get("status") in {"queued", "running"}:
+        progress["ok"] = True
+        progress["accepted"] = False
+        progress["already_running"] = True
+        return progress
 
-    query = """
-        SELECT r.name, r.shared_plots_json, r.purchase_order_data
-        FROM `tabRequest` r
-        WHERE r.customer = %s
-        AND (
-            (r.shared_plots_json IS NOT NULL AND r.shared_plots_json != '')
-            OR (r.purchase_order_data IS NOT NULL AND r.purchase_order_data != '')
-        )
-    """
-    requests_with_plots = frappe.db.sql(query, (customer,), as_dict=True)
+    analyzed_raw = _cache_get_json(keys["analyzed"], []) or []
+    analyzed_plot_names = {str(p).strip() for p in analyzed_raw if p}
+    pending_names = _collect_pending_risk_plot_names(customer, analyzed_plot_names)
 
-    plot_ids = []
-    for req in requests_with_plots:
-        try:
-            if req.shared_plots_json:
-                parsed = json.loads(req.shared_plots_json) if isinstance(req.shared_plots_json, str) else req.shared_plots_json
-                if isinstance(parsed, list):
-                    plot_ids.extend(parsed)
-                elif parsed:
-                    plot_ids.append(parsed)
-        except Exception:
-            pass
-
-        if req.purchase_order_data:
-            try:
-                po_data = json.loads(req.purchase_order_data) if isinstance(req.purchase_order_data, str) else req.purchase_order_data
-                po_plots = (
-                    po_data.get("selected_plots")
-                    or po_data.get("selectedPlots")
-                    or po_data.get("plots")
-                    or []
-                )
-                if isinstance(po_plots, str):
-                    try:
-                        po_plots = json.loads(po_plots)
-                    except Exception:
-                        po_plots = [p.strip() for p in po_plots.split(",") if p.strip()]
-                if isinstance(po_plots, list) and po_plots and isinstance(po_plots[0], dict):
-                    po_plots = [p.get("id") or p.get("plot_id") or p.get("name") for p in po_plots]
-                    po_plots = [p for p in po_plots if p]
-                if isinstance(po_plots, list):
-                    plot_ids.extend(po_plots)
-            except Exception:
-                pass
-
-    normalized_ids = []
-    seen = set()
-    for pid in plot_ids:
-        key = str(pid).strip()
-        if key and key not in seen:
-            seen.add(key)
-            normalized_ids.append(key)
-
-    if not normalized_ids:
-        return {
-            "ok": True,
-            "message": "No new shared plots to analyze",
-            "total": 0,
-            "updated": 0,
-            "skipped": 0,
-            "failed": 0
-        }
-
-    plot_meta = frappe.get_meta("Land Plot")
-    has_plot_id = plot_meta.has_field("plot_id")
-
-    matched_names = set()
-    by_name = frappe.get_all(
-        "Land Plot",
-        filters={"name": ["in", normalized_ids]},
-        fields=["name"]
-    )
-    matched_names.update([p.name for p in by_name])
-
-    unresolved_ids = [pid for pid in normalized_ids if pid not in matched_names]
-    if has_plot_id and unresolved_ids:
-        by_plot_id = frappe.get_all(
-            "Land Plot",
-            filters={"plot_id": ["in", unresolved_ids]},
-            fields=["name"]
-        )
-        matched_names.update([p.name for p in by_plot_id])
-
-    if not matched_names:
-        return {
-            "ok": True,
-            "message": "No matching Land Plots found",
-            "total": 0,
-            "updated": 0,
-            "skipped": 0,
-            "failed": 0
-        }
-
-    pending_names = [name for name in matched_names if name not in analyzed_plot_names]
     if not pending_names:
-        return {
-            "ok": True,
-            "message": "No new plots to analyze",
+        done_payload = {
+            "status": "completed",
             "total": 0,
+            "processed": 0,
             "updated": 0,
             "skipped": 0,
-            "failed": 0
+            "failed": 0,
+            "message": "No new plots to analyze",
+            "updated_on": now_datetime().isoformat(),
+            "completed_on": now_datetime().isoformat(),
         }
+        _cache_set_json(keys["progress"], done_payload)
+        out = _normalize_progress_payload(done_payload)
+        out["ok"] = True
+        out["accepted"] = False
+        return out
 
-    plots = frappe.get_all(
-        "Land Plot",
-        filters={"name": ["in", list(pending_names)]},
-        fields=["name", "plot_id", "coordinates"]
+    queued_payload = {
+        "status": "queued",
+        "total": len(pending_names),
+        "processed": 0,
+        "updated": 0,
+        "skipped": 0,
+        "failed": 0,
+        "message": "Risk analysis queued",
+        "started_on": now_datetime().isoformat(),
+        "updated_on": now_datetime().isoformat(),
+    }
+    _cache_set_json(keys["progress"], queued_payload)
+
+    job = frappe.enqueue(
+        "farmportal.api.requests._run_risk_analysis_job",
+        queue="long",
+        timeout=60 * 60,
+        enqueue_after_commit=True,
+        customer=customer,
+        pending_names=pending_names,
     )
 
-    init_earth_engine()
-
-    updated = 0
-    skipped = 0
-    failed = []
-
-    for plot in plots:
-        coords = plot.get("coordinates")
-        if isinstance(coords, str):
-            try:
-                coords = json.loads(coords)
-            except Exception:
-                coords = None
-
-        if not coords or not isinstance(coords, list):
-            skipped += 1
-            continue
-
-        try:
-            stats = calculate_deforestation_data(coords)
-            if not stats:
-                failed.append({"plot": plot.get("name"), "reason": "No stats returned"})
-                continue
-
-            doc = frappe.get_doc("Land Plot", plot.get("name"))
-            doc.set("deforestation_percentage", stats.get("deforestation_percent", 0))
-            doc.set("deforested_area", stats.get("loss_area_ha", 0))
-            doc.save(ignore_permissions=True)
-            updated += 1
-            analyzed_plot_names.add(str(plot.get("name")).strip())
-        except Exception as e:
-            failed.append({"plot": plot.get("name"), "reason": str(e)})
-
-    frappe.db.commit()
-    frappe.cache().set_value(analysis_cache_key, now_datetime().isoformat())
-    frappe.cache().set_value(analyzed_plots_cache_key, json.dumps(sorted(analyzed_plot_names)))
-
-    return {
+    response = _normalize_progress_payload(queued_payload)
+    response.update({
         "ok": True,
-        "message": "Risk analysis completed",
-        "total": len(plots),
-        "updated": updated,
-        "skipped": skipped,
-        "failed": len(failed),
-        "failed_plots": failed[:20]
-    }
+        "accepted": True,
+        "job_id": getattr(job, "id", None),
+        "message": "Risk analysis started",
+    })
+    return response
 
 
 

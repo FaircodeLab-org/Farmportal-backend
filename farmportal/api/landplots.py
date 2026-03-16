@@ -320,6 +320,9 @@ import tempfile
 from datetime import datetime
 from frappe import _
 
+DEFAULT_SINGLE_POINT_RADIUS_M = 100.0
+_EE_READY = False
+
 
 def get_ee_config():
     """Get Earth Engine configuration from site config"""
@@ -327,6 +330,10 @@ def get_ee_config():
 
 def init_earth_engine():
     """Initialize Earth Engine with service account credentials from site config"""
+    global _EE_READY
+    if _EE_READY:
+        return
+
     print("[DEBUG] Initializing Earth Engine...")  # [DEBUG]
     try:
         ee_config = get_ee_config()
@@ -346,6 +353,11 @@ def init_earth_engine():
             safe_log_error(error_msg)
             print(f"[DEBUG] {error_msg}")  # [DEBUG]
             return
+
+        # Fast path: EE already initialized in this process.
+        if ee.data._credentials:
+            _EE_READY = True
+            return
         
         # Create temporary file for credentials (EE requires file path)
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_file:
@@ -357,9 +369,11 @@ def init_earth_engine():
             try:
                 ee.Initialize(credentials, project=project)
                 print("[DEBUG] Earth Engine initialized successfully.")  # [DEBUG]
+                _EE_READY = True
             except Exception as e:
                 if "already been initialized" in str(e):
                     print("[DEBUG] Earth Engine already initialized.")  # [DEBUG]
+                    _EE_READY = True
                 else:
                     raise
         finally:
@@ -368,6 +382,7 @@ def init_earth_engine():
                 os.unlink(temp_key_path)
                 
     except Exception as e:
+        _EE_READY = False
         safe_log_error(f"Earth Engine initialization failed: {str(e)}")
         print(f"[DEBUG] Earth Engine initialization failed: {e}")  # [DEBUG]
 
@@ -409,82 +424,169 @@ def generate_unique_plot_id(base_id=None, supplier=None):
     unique_suffix = str(uuid.uuid4())[:8].upper()
     return f"PLOT-{timestamp}-{unique_suffix}"
 
-def calculate_deforestation_data(coordinates):
-    """Calculate deforestation data for given coordinates"""
+def _to_positive_float(value):
     try:
-        init_earth_engine()
-        
-        if not coordinates or len(coordinates) == 0:
-            return None
-            
-        # Handle single point coordinates (convert to small polygon)
-        if len(coordinates) == 1:
-            lng, lat = coordinates[0]
-            # Create a small buffer around the point (about 100m radius)
-            buffer_size = 0.001  # approximately 100m
-            coords = [
-                [lng - buffer_size, lat - buffer_size],
-                [lng + buffer_size, lat - buffer_size],
-                [lng + buffer_size, lat + buffer_size],
-                [lng - buffer_size, lat + buffer_size],
-                [lng - buffer_size, lat - buffer_size]
-            ]
+        v = float(value)
+        return v if v > 0 else None
+    except Exception:
+        return None
+
+def _normalize_coordinates_to_polygon(coordinates):
+    """Normalize point/polygon coordinates to a closed polygon ring."""
+    if not coordinates or len(coordinates) == 0:
+        return None
+
+    # Single point fallback for polygon-only callers.
+    if len(coordinates) == 1:
+        lng, lat = coordinates[0]
+        buffer_size = 0.001
+        return [
+            [lng - buffer_size, lat - buffer_size],
+            [lng + buffer_size, lat - buffer_size],
+            [lng + buffer_size, lat + buffer_size],
+            [lng - buffer_size, lat + buffer_size],
+            [lng - buffer_size, lat - buffer_size],
+        ]
+
+    coords = coordinates.copy()
+    if coords[0] != coords[-1]:
+        coords.append(coords[0])
+    return coords
+
+def _build_analysis_geometry(coordinates, area_ha=None):
+    """Build EE geometry. Single-point plots use area-based circular buffer."""
+    if not coordinates or len(coordinates) == 0:
+        return None
+
+    if len(coordinates) == 1:
+        lng, lat = coordinates[0]
+        area_value = _to_positive_float(area_ha)
+        if area_value:
+            # Area-based circle so risk math aligns with Land Plot area.
+            area_m2 = area_value * 10000.0
+            radius_m = (area_m2 / 3.141592653589793) ** 0.5
         else:
-            coords = coordinates.copy()
-            # Ensure polygon is closed
-            if coords[0] != coords[-1]:
-                coords.append(coords[0])
+            radius_m = DEFAULT_SINGLE_POINT_RADIUS_M
+        return ee.Geometry.Point([lng, lat]).buffer(radius_m)
 
-        polygon = ee.Geometry.Polygon([coords])
+    coords = _normalize_coordinates_to_polygon(coordinates)
+    if not coords:
+        return None
+    return ee.Geometry.Polygon([coords])
 
-        # Load Hansen dataset
-        gfc = ee.Image("UMD/hansen/global_forest_change_2024_v1_12")
-        tree_cover_2000 = gfc.select("treecover2000")
-        loss_year = gfc.select("lossyear")
+def _build_deforestation_inputs(geometry):
+    """
+    Build Hansen + Sentinel-2 masks for combined deforestation analysis.
+    Combined loss is computed as UNION(Hansen loss, Sentinel NDVI-loss).
+    """
+    gfc = ee.Image("UMD/hansen/global_forest_change_2024_v1_12")
+    tree_cover_2000 = gfc.select("treecover2000")
+    loss_year = gfc.select("lossyear")
 
-        # Forest = tree cover ≥ 30%
-        forest_mask = tree_cover_2000.gte(30)
-        loss_after_2020 = loss_year.gt(20)
+    # Baseline forest mask from Hansen.
+    forest_mask = tree_cover_2000.gte(30).rename("forest")
 
-        # Area calculations
-        pixel_area = ee.Image.pixelArea()
-        forest_area_img = forest_mask.multiply(pixel_area)
-        loss_area_img = loss_after_2020.multiply(forest_mask).multiply(pixel_area)
+    # Hansen loss after 2020 baseline.
+    hansen_loss_mask = loss_year.gt(20).And(forest_mask).rename("hansen_loss")
 
-        forest_area = forest_area_img.reduceRegion(
-            reducer=ee.Reducer.sum(),
-            geometry=polygon,
-            scale=30,
-            maxPixels=1e9
-        ).get('treecover2000')
-
-        loss_area = loss_area_img.reduceRegion(
-            reducer=ee.Reducer.sum(),
-            geometry=polygon,
-            scale=30,
-            maxPixels=1e9
-        ).get('lossyear')
-
-        # Calculate statistics
-        forest_area_ha = ee.Number(forest_area).divide(10000)
-        loss_area_ha = ee.Number(loss_area).divide(10000)
-        loss_percent = ee.Algorithms.If(
-            forest_area_ha.gt(0),
-            loss_area_ha.divide(forest_area_ha).multiply(100),
-            0
+    sentinel_loss_mask = None
+    try:
+        s2 = (
+            ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+            .filterBounds(geometry)
+            .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", 20))
         )
 
-        stats = ee.Dictionary({
-            "forest_area_ha": forest_area_ha,
-            "loss_area_ha": loss_area_ha,
-            "deforestation_percent": loss_percent
-        }).getInfo()
+        s2_2020 = s2.filterDate("2019-01-01", "2020-12-31").median()
+        s2_recent = s2.filterDate("2024-01-01", "2026-01-01").median()
 
-        return {
-            "forest_area_ha": round(stats["forest_area_ha"], 2),
-            "loss_area_ha": round(stats["loss_area_ha"], 2),
-            "deforestation_percent": round(stats["deforestation_percent"], 2)
-        }
+        ndvi_2020 = s2_2020.normalizedDifference(["B8", "B4"])
+        ndvi_recent = s2_recent.normalizedDifference(["B8", "B4"])
+        ndvi_change = ndvi_2020.subtract(ndvi_recent)
+
+        sentinel_loss_mask = ndvi_change.gt(0.25).And(forest_mask).rename("sentinel_loss")
+    except Exception as sentinel_error:
+        # Do not fail overall analysis if Sentinel processing fails.
+        safe_log_error(
+            f"Sentinel-2 deforestation calculation failed; using Hansen only: {str(sentinel_error)}",
+            "Sentinel Calc Warning"
+        )
+
+    if sentinel_loss_mask is None:
+        sentinel_loss_mask = ee.Image.constant(0).rename("sentinel_loss").clip(geometry)
+
+    combined_loss_mask = hansen_loss_mask.Or(sentinel_loss_mask).rename("combined_loss")
+
+    return {
+        "tree_cover_2000": tree_cover_2000,
+        "loss_year": loss_year,
+        "forest_mask": forest_mask,
+        "hansen_loss_mask": hansen_loss_mask,
+        "sentinel_loss_mask": sentinel_loss_mask,
+        "combined_loss_mask": combined_loss_mask,
+    }
+
+def _calculate_deforestation_stats(geometry, forest_mask, combined_loss_mask):
+    """Calculate area and percentage metrics from forest/loss masks."""
+    pixel_area = ee.Image.pixelArea()
+    forest_area_img = forest_mask.rename("forest").multiply(pixel_area)
+    loss_area_img = combined_loss_mask.rename("loss").multiply(pixel_area)
+
+    reduce_kwargs = {
+        "reducer": ee.Reducer.sum(),
+        "geometry": geometry,
+        "scale": 10,
+        "maxPixels": 1e10,
+        "bestEffort": True,
+        "tileScale": 4,
+    }
+
+    forest_area_dict = forest_area_img.reduceRegion(**reduce_kwargs)
+    loss_area_dict = loss_area_img.reduceRegion(**reduce_kwargs)
+
+    forest_area = ee.Number(
+        ee.Algorithms.If(forest_area_dict.get("forest"), forest_area_dict.get("forest"), 0)
+    )
+    loss_area = ee.Number(
+        ee.Algorithms.If(loss_area_dict.get("loss"), loss_area_dict.get("loss"), 0)
+    )
+
+    forest_area_ha = forest_area.divide(10000)
+    loss_area_ha = loss_area.divide(10000)
+    loss_percent = ee.Algorithms.If(
+        forest_area_ha.gt(0),
+        loss_area_ha.divide(forest_area_ha).multiply(100),
+        0
+    )
+
+    stats = ee.Dictionary({
+        "forest_area_ha": forest_area_ha,
+        "loss_area_ha": loss_area_ha,
+        "deforestation_percent": loss_percent
+    }).getInfo()
+
+    return {
+        "forest_area_ha": round(stats["forest_area_ha"], 2),
+        "loss_area_ha": round(stats["loss_area_ha"], 2),
+        "deforestation_percent": round(stats["deforestation_percent"], 2)
+    }
+
+def calculate_deforestation_data(coordinates, area_ha=None, ensure_init=True):
+    """Calculate deforestation data for given coordinates"""
+    try:
+        if ensure_init:
+            init_earth_engine()
+        
+        geometry = _build_analysis_geometry(coordinates, area_ha=area_ha)
+        if not geometry:
+            return None
+
+        masks = _build_deforestation_inputs(geometry)
+        return _calculate_deforestation_stats(
+            geometry,
+            masks["forest_mask"],
+            masks["combined_loss_mask"],
+        )
 
     except Exception as e:
         safe_log_error(f"Deforestation calculation failed: {str(e)}", "Deforestation Error")
@@ -492,25 +594,21 @@ def calculate_deforestation_data(coordinates):
 
         
 @frappe.whitelist()
-def get_deforestation_tiles(coordinates_json):
+def get_deforestation_tiles(coordinates_json, area_ha=None):
     """Generate Earth Engine tile URLs for deforestation visualization"""
     try:
         init_earth_engine()
         
         coordinates = json.loads(coordinates_json)
-        if coordinates[0] != coordinates[-1]:
-            coordinates.append(coordinates[0])
+        geometry = _build_analysis_geometry(coordinates, area_ha=area_ha)
+        if not geometry:
+            frappe.throw(_("Invalid coordinates for deforestation analysis"))
 
-        polygon = ee.Geometry.Polygon([coordinates])
-
-        # Load Hansen dataset
-        gfc = ee.Image("UMD/hansen/global_forest_change_2024_v1_12")
-        tree_cover_2000 = gfc.select("treecover2000")
-        loss_year = gfc.select("lossyear")
-
-        # Forest = tree cover ≥ 30%
-        forest_mask = tree_cover_2000.gte(30)
-        loss_after_2020 = loss_year.gt(20)
+        masks = _build_deforestation_inputs(geometry)
+        tree_cover_2000 = masks["tree_cover_2000"]
+        loss_year = masks["loss_year"]
+        forest_mask = masks["forest_mask"]
+        hansen_loss_mask = masks["hansen_loss_mask"]
 
         # Create visualization parameters
         # Tree cover visualization (green shades)
@@ -536,50 +634,23 @@ def get_deforestation_tiles(coordinates_json):
 
         # Generate tile URLs
         tree_cover_tile_info = tree_cover_2000.updateMask(forest_mask).getMapId(tree_cover_vis)
-        deforestation_tile_info = loss_after_2020.selfMask().getMapId(deforestation_vis)
+        # Keep this as Hansen layer for visual continuity; stats below use combined logic.
+        deforestation_tile_info = hansen_loss_mask.selfMask().getMapId(deforestation_vis)
         loss_year_tile_info = loss_year.updateMask(loss_year.gt(20)).getMapId(loss_year_vis)
 
-        # Calculate area statistics
-        pixel_area = ee.Image.pixelArea()
-        forest_area_img = forest_mask.multiply(pixel_area)
-        loss_area_img = loss_after_2020.multiply(forest_mask).multiply(pixel_area)
-
-        forest_area = forest_area_img.reduceRegion(
-            reducer=ee.Reducer.sum(),
-            geometry=polygon,
-            scale=30,
-            maxPixels=1e9
-        ).get('treecover2000')
-
-        loss_area = loss_area_img.reduceRegion(
-            reducer=ee.Reducer.sum(),
-            geometry=polygon,
-            scale=30,
-            maxPixels=1e9
-        ).get('lossyear')
-
-        # Calculate statistics
-        forest_area_ha = ee.Number(forest_area).divide(10000)
-        loss_area_ha = ee.Number(loss_area).divide(10000)
-        loss_percent = ee.Algorithms.If(
-            forest_area_ha.gt(0),
-            loss_area_ha.divide(forest_area_ha).multiply(100),
-            0
+        stats = _calculate_deforestation_stats(
+            geometry,
+            masks["forest_mask"],
+            masks["combined_loss_mask"],
         )
-
-        stats = ee.Dictionary({
-            "forest_area_ha": forest_area_ha,
-            "loss_area_ha": loss_area_ha,
-            "deforestation_percent": loss_percent
-        }).getInfo()
 
         return {
             "tree_cover_tile_url": tree_cover_tile_info['tile_fetcher'].url_format,
             "deforestation_tile_url": deforestation_tile_info['tile_fetcher'].url_format,
             "loss_year_tile_url": loss_year_tile_info['tile_fetcher'].url_format,
-            "forest_area_ha": round(stats["forest_area_ha"], 2),
-            "loss_area_ha": round(stats["loss_area_ha"], 2),
-            "deforestation_percent": round(stats["deforestation_percent"], 2)
+            "forest_area_ha": stats["forest_area_ha"],
+            "loss_area_ha": stats["loss_area_ha"],
+            "deforestation_percent": stats["deforestation_percent"]
         }
 
     except Exception as e:
@@ -733,6 +804,12 @@ def create_single_plot_internal(plot_data, supplier, calculate_deforestation=Tru
             unique_plot_id = f"PLOT-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
             break
     
+    raw_area = plot_data.get("area", 0)
+    try:
+        area_value = float(raw_area or 0)
+    except Exception:
+        area_value = 0.0
+
     # Calculate deforestation data only when explicitly requested
     deforestation_data = None
     if calculate_deforestation and plot_data.get('coordinates'):
@@ -746,7 +823,10 @@ def create_single_plot_internal(plot_data, supplier, calculate_deforestation=Tru
         if coordinates:
             print(f"Calculating deforestation for plot {unique_plot_id}...")
             try:
-                deforestation_data = calculate_deforestation_data(coordinates)
+                deforestation_data = calculate_deforestation_data(
+                    coordinates,
+                    area_ha=area_value if area_value > 0 else None,
+                )
                 if deforestation_data:
                     print(f"Deforestation calculation complete: {deforestation_data['deforestation_percent']}%")
             except Exception as e:
@@ -770,7 +850,7 @@ def create_single_plot_internal(plot_data, supplier, calculate_deforestation=Tru
         "state_province": plot_data.get("state_province", ""),
         "supplier": supplier,
         "country": plot_data.get("country", ""),
-        "area": float(plot_data.get("area", 0)),
+        "area": area_value,
         "yield_dried_mt": float(plot_data.get("yield_dried_mt")) if plot_data.get("yield_dried_mt") not in (None, "") else None,
         "latitude": float(plot_data.get("latitude")) if plot_data.get("latitude") else None,
         "longitude": float(plot_data.get("longitude")) if plot_data.get("longitude") else None,
@@ -858,7 +938,10 @@ def update_land_plot(name, plot_data, recalculate_deforestation=False):
         
         if coordinates:
             print(f"Recalculating deforestation for plot {doc.plot_id}...")
-            deforestation_data = calculate_deforestation_data(coordinates)
+            deforestation_data = calculate_deforestation_data(
+                coordinates,
+                area_ha=data.get("area", doc.area),
+            )
             if deforestation_data:
                 doc.deforestation_percentage = deforestation_data["deforestation_percent"]
                 doc.deforested_area = deforestation_data["loss_area_ha"]
@@ -945,7 +1028,7 @@ def recalculate_deforestation(plot_name):
     
     try:
         coordinates = json.loads(doc.coordinates)
-        deforestation_data = calculate_deforestation_data(coordinates)
+        deforestation_data = calculate_deforestation_data(coordinates, area_ha=doc.area)
         
         if deforestation_data:
             doc.deforestation_percentage = deforestation_data["deforestation_percent"]
