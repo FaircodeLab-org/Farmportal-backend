@@ -26,7 +26,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Input type",
-   "options": "Multiple Choice\nText\nFile",
+   "options": "Short Answer\nParagraph\nMultiple Choice\nCheckbox\nDropdown\nFile\nDate\nSection\nText",
    "reqd": 1
   },
   {

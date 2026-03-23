@@ -6,6 +6,8 @@ from frappe.utils.file_manager import save_file
 
 DT = "Questionnaire"
 CHILD_DT = "Questionnaire Question"
+CHOICE_INPUT_TYPES = {"Multiple Choice", "Checkbox", "Dropdown"}
+SECTION_INPUT_TYPE = "Section"
 
 
 # Reuse your helper from requests.py if available
@@ -39,16 +41,51 @@ def _ensure_options(opts):
 
 def _normalize_input_type(input_type: str) -> str:
     """Normalize input type to standard values."""
+    normalized = str(input_type or "").strip().lower()
     type_map = {
+        'short answer': 'Short Answer',
+        'short': 'Short Answer',
+        'paragraph': 'Paragraph',
         'multiple choice': 'Multiple Choice',
         'radio': 'Multiple Choice',
-        'select': 'Multiple Choice',
+        'checkbox': 'Checkbox',
+        'check': 'Checkbox',
+        'dropdown': 'Dropdown',
+        'select': 'Dropdown',
+        'date': 'Date',
+        'section': 'Section',
         'text': 'Text',
         'file upload': 'File',
         'file': 'File',
         'attach': 'File'
     }
-    return type_map.get(input_type.lower(), 'Text')
+    return type_map.get(normalized, 'Short Answer')
+
+
+def _is_effectively_empty_answer(row) -> bool:
+    input_type = str(row.input_type or "").strip()
+    if input_type == SECTION_INPUT_TYPE:
+        return False
+
+    answer = row.answer
+    if answer is None:
+        return True
+
+    if input_type == "Checkbox":
+        if isinstance(answer, list):
+            return len([x for x in answer if str(x).strip()]) == 0
+        answer_text = str(answer).strip()
+        if not answer_text:
+            return True
+        try:
+            parsed = json.loads(answer_text)
+            if isinstance(parsed, list):
+                return len([x for x in parsed if str(x).strip()]) == 0
+        except Exception:
+            pass
+        return False
+
+    return str(answer).strip() == ""
 
 
 def _parse_payload(kwargs: dict) -> dict:
@@ -108,8 +145,10 @@ def create_questionnaire(supplier_id: str = None, title: str = None, questions: 
         questions: List of question objects with structure:
             {
                 question: str,
-                input_type: 'Text' | 'Multiple Choice' | 'File' | 'File Upload',
-                options: list (required for Multiple Choice),
+                input_type: 'Short Answer' | 'Paragraph' | 'Multiple Choice' | 'Checkbox'
+                            | 'Dropdown' | 'File' | 'Date' | 'Section',
+                options: list (required for Multiple Choice / Checkbox / Dropdown),
+                description: str (optional, for Section),
                 required: 0 | 1
             }
         due_date: Optional due date in YYYY-MM-DD format
@@ -166,11 +205,17 @@ def create_questionnaire(supplier_id: str = None, title: str = None, questions: 
         # Normalize input type
         raw_type = q.get("input_type") or q.get("type") or "Text"
         item.input_type = _normalize_input_type(raw_type)
-        
+
+        # Section rows are form separators and don't require answers.
+        if item.input_type == SECTION_INPUT_TYPE:
+            item.required = 0
+            item.options_raw = (q.get("description") or q.get("section_description") or "").strip()
+            continue
+
         item.required = 1 if q.get("required") else 0
-        
-        # Handle options for Multiple Choice
-        if item.input_type == "Multiple Choice":
+
+        # Handle options for choice-based questions
+        if item.input_type in CHOICE_INPUT_TYPES:
             item.options_raw = _ensure_options(q.get("options"))
 
     # Some sites may have custom mandatory parent fields on Questionnaire
@@ -244,14 +289,16 @@ def get_one(q_id: str):
     questions = []
     for row in doc.get("questions") or []:
         opts = []
-        if row.input_type == "Multiple Choice":
+        if row.input_type in CHOICE_INPUT_TYPES:
             opts = (row.options_raw or "").splitlines()
+        section_description = (row.options_raw or "") if row.input_type == SECTION_INPUT_TYPE else ""
         
         questions.append({
             "rowname": row.name,          # child row id for mapping answers
             "question": row.question,
-            "input_type": row.input_type, # 'Multiple Choice', 'Text', or 'File'
+            "input_type": row.input_type,
             "options": opts,
+            "description": section_description,
             "required": int(row.required or 0),
             "answer": row.answer or ""
         })
@@ -389,9 +436,12 @@ def submit_answers(q_id: str = None, answers: dict | str = None, message: str | 
     for rowname, val in amap.items():
         row = child_map.get(rowname)
         if row:
-            # For File type, val should be the file_url after upload
-            # For Text/Multiple Choice, it's the actual answer
-            row.answer = "" if val is None else str(val)
+            if val is None:
+                row.answer = ""
+            elif isinstance(val, (list, dict)):
+                row.answer = json.dumps(val, ensure_ascii=False)
+            else:
+                row.answer = str(val)
 
     if message is not None:
         doc.response_message = message
@@ -402,7 +452,11 @@ def submit_answers(q_id: str = None, answers: dict | str = None, message: str | 
         # Validate required fields before completing
         missing_required = []
         for row in (doc.get("questions") or []):
-            if row.required and not row.answer:
+            if not row.required:
+                continue
+            if str(row.input_type or "").strip() == SECTION_INPUT_TYPE:
+                continue
+            if _is_effectively_empty_answer(row):
                 missing_required.append(row.question)
         
         if missing_required:
