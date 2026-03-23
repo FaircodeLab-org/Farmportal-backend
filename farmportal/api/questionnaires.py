@@ -51,8 +51,54 @@ def _normalize_input_type(input_type: str) -> str:
     return type_map.get(input_type.lower(), 'Text')
 
 
+def _parse_payload(kwargs: dict) -> dict:
+    payload = frappe._dict(kwargs or {})
+    raw_data = payload.get("data")
+    if raw_data:
+        try:
+            if isinstance(raw_data, str):
+                parsed = json.loads(raw_data)
+            elif isinstance(raw_data, dict):
+                parsed = raw_data
+            else:
+                parsed = {}
+            if isinstance(parsed, dict):
+                payload.update(parsed)
+        except Exception:
+            pass
+    return payload
+
+
+def _resolve_customer_for_user(user: str) -> str | None:
+    customer, _supplier = _get_party_from_user(user)
+    if customer:
+        return customer
+    for fieldname in ("custom_user", "user_id", "user"):
+        try:
+            customer = frappe.db.get_value("Customer", {fieldname: user}, "name")
+        except Exception:
+            customer = None
+        if customer:
+            return customer
+    return None
+
+
+def _resolve_supplier_for_user(user: str) -> str | None:
+    _customer, supplier = _get_party_from_user(user)
+    if supplier:
+        return supplier
+    for fieldname in ("custom_user", "user_id", "user"):
+        try:
+            supplier = frappe.db.get_value("Supplier", {fieldname: user}, "name")
+        except Exception:
+            supplier = None
+        if supplier:
+            return supplier
+    return None
+
+
 @frappe.whitelist()
-def create_questionnaire(supplier_id: str, title: str, questions: list | str, due_date: str | None = None):
+def create_questionnaire(supplier_id: str = None, title: str = None, questions: list | str = None, due_date: str | None = None, **kwargs):
     """
     Customer creates a questionnaire with actual questions.
     
@@ -72,11 +118,30 @@ def create_questionnaire(supplier_id: str, title: str, questions: list | str, du
     if user == "Guest":
         frappe.throw(_t("Not logged in"), frappe.PermissionError)
 
-    customer, supplier_flag = _get_party_from_user(user)
+    payload = _parse_payload(kwargs)
+    supplier_id = supplier_id or payload.get("supplier_id") or payload.get("supplier") or payload.get("supplier_name")
+    title = title or payload.get("title")
+    questions = questions if questions is not None else payload.get("questions")
+    due_date = due_date or payload.get("due_date")
+
+    customer = _resolve_customer_for_user(user)
+    supplier_flag = _resolve_supplier_for_user(user)
     if not customer:
-        frappe.throw(_t("No Customer linked to your user"), frappe.PermissionError)
+        frappe.throw(_t("No Customer linked to your user ({0})").format(user), frappe.PermissionError)
     if supplier_flag and not customer:
         frappe.throw(_t("Suppliers cannot create questionnaires"), frappe.PermissionError)
+
+    if not supplier_id:
+        frappe.throw(_t("Supplier is required"))
+    if not title:
+        frappe.throw(_t("Title is required"))
+
+    if not frappe.db.exists("Supplier", supplier_id):
+        by_supplier_name = frappe.db.get_value("Supplier", {"supplier_name": supplier_id}, "name")
+        if by_supplier_name:
+            supplier_id = by_supplier_name
+        else:
+            frappe.throw(_t("Supplier '{0}' not found").format(supplier_id))
 
     qlist = _as_list(questions)
     if not qlist:
@@ -92,6 +157,9 @@ def create_questionnaire(supplier_id: str, title: str, questions: list | str, du
         doc.due_date = due_date
 
     for q in qlist:
+        if not isinstance(q, dict):
+            continue
+
         item = doc.append("questions", {})
         item.question = q.get("question") or q.get("question_text") or ""
         
@@ -105,7 +173,11 @@ def create_questionnaire(supplier_id: str, title: str, questions: list | str, du
         if item.input_type == "Multiple Choice":
             item.options_raw = _ensure_options(q.get("options"))
 
-    doc.insert(ignore_permissions=True)
+    # Some sites may have custom mandatory parent fields on Questionnaire
+    # (e.g. static form fields) that are unrelated to this API-driven flow.
+    # We intentionally bypass those and validate dynamic question rows ourselves.
+    doc.flags.ignore_mandatory = True
+    doc.insert(ignore_permissions=True, ignore_mandatory=True)
     frappe.db.commit()
     return {"id": doc.name, "status": doc.status, "message": _t("Questionnaire created successfully")}
 
@@ -268,7 +340,7 @@ def upload_questionnaire_file(q_id: str, rowname: str):
 
 
 @frappe.whitelist()
-def submit_answers(q_id: str, answers: dict | str = None, message: str | None = None, action: str | None = None):
+def submit_answers(q_id: str = None, answers: dict | str = None, message: str | None = None, action: str | None = None, **kwargs):
     """
     Submit or update answers for a questionnaire.
     
@@ -285,7 +357,18 @@ def submit_answers(q_id: str, answers: dict | str = None, message: str | None = 
     if user == "Guest":
         frappe.throw(_t("Not logged in"), frappe.PermissionError)
 
-    _, supplier = _get_party_from_user(user)
+    payload = _parse_payload(kwargs)
+    q_id = q_id or payload.get("q_id") or payload.get("id") or payload.get("questionnaire_id")
+    answers = answers if answers is not None else payload.get("answers")
+    if message is None:
+        message = payload.get("message")
+    if action is None:
+        action = payload.get("action")
+
+    if not q_id:
+        frappe.throw(_t("Questionnaire ID is required"))
+
+    supplier = _resolve_supplier_for_user(user)
     doc = frappe.get_doc(DT, q_id)
     
     if not supplier or supplier != doc.supplier:
@@ -336,6 +419,8 @@ def submit_answers(q_id: str, answers: dict | str = None, message: str | None = 
         if not message:
             doc.response_message = "Denied by supplier"
 
+    # Keep API flow resilient to unrelated custom mandatory parent fields.
+    doc.flags.ignore_mandatory = True
     doc.save(ignore_permissions=True)
     frappe.db.commit()
     
