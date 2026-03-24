@@ -226,6 +226,34 @@ def _ensure_template_access(doc, customer: str | None, is_manager: bool):
     frappe.throw(_t("Not permitted to access this template"), frappe.PermissionError)
 
 
+
+def _find_template_with_same_title(title: str, customer: str | None, exclude_id: str | None = None) -> str | None:
+    wanted = str(title or "").strip().lower()
+    if not wanted:
+        return None
+
+    rows = frappe.get_all(
+        TEMPLATE_DT,
+        filters={"is_active": 1},
+        fields=["name", "title", "customer"],
+        limit_page_length=2000,
+    )
+
+    scope_customer = (customer or "").strip()
+    for row in rows:
+        if exclude_id and row.get("name") == exclude_id:
+            continue
+
+        row_customer = str(row.get("customer") or "").strip()
+        if row_customer != scope_customer:
+            continue
+
+        row_title = str(row.get("title") or "").strip().lower()
+        if row_title == wanted:
+            return row.get("name")
+
+    return None
+
 @frappe.whitelist()
 def create_questionnaire(supplier_id: str = None, title: str = None, questions: list | str = None, due_date: str | None = None, **kwargs):
     """
@@ -441,6 +469,9 @@ def save_template(
 
     if not title:
         frappe.throw(_t("Template title is required"))
+    normalized_title = str(title).strip()
+    if not normalized_title:
+        frappe.throw(_t("Template title is required"))
 
     customer = _resolve_customer_for_user(user)
     is_manager = _is_system_manager(user)
@@ -459,7 +490,16 @@ def save_template(
         doc.customer = customer if customer else None
         doc.created_by = user
 
-    doc.title = title.strip()
+    scope_customer = (doc.get("customer") or customer or "").strip() or None
+    duplicate_id = _find_template_with_same_title(
+        normalized_title,
+        scope_customer,
+        exclude_id=(doc.name if template_id else None),
+    )
+    if duplicate_id:
+        frappe.throw(_t("Template name '{0}' already exists").format(normalized_title))
+
+    doc.title = normalized_title
     doc.description = (description or "").strip()
     doc.is_public = 1 if _parse_bool(is_public, default=False) else 0
     doc.is_active = 1
