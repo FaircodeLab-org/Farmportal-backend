@@ -135,7 +135,20 @@ def _collect_pending_risk_plot_names(customer: str, analyzed_plot_names: set[str
     if not matched_names:
         return []
 
-    pending = [name for name in matched_names if name not in analyzed_plot_names]
+    effective_analyzed = {str(n).strip() for n in analyzed_plot_names if n}
+    analyzed_rows = frappe.get_all(
+        "Land Plot",
+        filters={"name": ["in", list(matched_names)]},
+        fields=["name", "deforestation_percentage", "deforested_area"],
+    )
+    for row in analyzed_rows:
+        # Persisted analysis on the plot should survive server/cache restarts.
+        if row.get("deforestation_percentage") is not None or row.get("deforested_area") is not None:
+            nm = str(row.get("name") or "").strip()
+            if nm:
+                effective_analyzed.add(nm)
+
+    pending = [name for name in matched_names if name not in effective_analyzed]
     pending = [str(n).strip() for n in pending if n]
     pending.sort()
     return pending
@@ -1211,16 +1224,8 @@ def get_risk_dashboard_data():
             return {"suppliers": [], "summary": {}}
 
         # Risk analysis state: keep a per-customer set of already analyzed plot names.
-        analyzed_plots_cache_key = _risk_cache_keys(customer)["analyzed"]
-        analyzed_plots_raw = frappe.cache().get_value(analyzed_plots_cache_key)
-        analyzed_plot_names = set()
-        if analyzed_plots_raw:
-            try:
-                parsed = json.loads(analyzed_plots_raw) if isinstance(analyzed_plots_raw, str) else analyzed_plots_raw
-                if isinstance(parsed, list):
-                    analyzed_plot_names = {str(p).strip() for p in parsed if p}
-            except Exception:
-                analyzed_plot_names = set()
+        parsed_analyzed = _cache_get_json(_risk_cache_keys(customer)["analyzed"], []) or []
+        analyzed_plot_names = {str(p).strip() for p in parsed_analyzed if p}
 
         # Get all requests for this customer with shared plots
         requests_with_plots = frappe.db.sql("""
@@ -1445,11 +1450,20 @@ def get_risk_dashboard_data():
             analyzed_plots = []
 
             # Plot-level analysis status:
-            # keep already analyzed plots visible, and mark only new plot names as pending.
+            # use cache + persisted field values so status survives cache/server restarts.
             for plot in unique_plots_list:
                 plot_name = str(plot.get("name") or "").strip()
-                plot_analysis_required = not plot_name or plot_name not in analyzed_plot_names
+                has_persisted_analysis = (
+                    plot.get("deforestation_percentage") is not None
+                    or plot.get("deforested_area") is not None
+                )
+                plot_analysis_required = not plot_name or (
+                    plot_name not in analyzed_plot_names and not has_persisted_analysis
+                )
                 plot["analysis_required"] = bool(plot_analysis_required)
+
+                if not plot_analysis_required and plot_name:
+                    analyzed_plot_names.add(plot_name)
 
                 if plot_analysis_required:
                     plot["risk_level"] = "not_analyzed"
@@ -1482,12 +1496,12 @@ def get_risk_dashboard_data():
                     data["overall_risk"] = "medium"
                 else:
                     data["overall_risk"] = "low"
-                
+
                 # Calculate compliance score (100 - deforestation impact) using analyzed area
                 avg_deforestation = (data["total_deforestation"] / analyzed_area) * 100 if analyzed_area > 0 else 0
                 data["compliance_score"] = max(0, min(100, 100 - (avg_deforestation * 2)))
                 data["avg_deforestation"] = avg_deforestation
-                
+
                 # Add summary info
                 data["total_unique_plots"] = total_plots
                 data["total_sharing_instances"] = sum([plot["total_shares"] for plot in unique_plots_list])
@@ -1499,10 +1513,12 @@ def get_risk_dashboard_data():
                 data["total_unique_plots"] = total_plots
                 data["total_sharing_instances"] = sum([plot["total_shares"] for plot in unique_plots_list])
                 data["analyzed_plots"] = 0
-            
+
             # Remove the dict version, keep only the list for frontend
             del data["unique_plots"]
 
+        # Keep analyzed cache in sync with persisted plot data across restarts.
+        _cache_set_json(_risk_cache_keys(customer)["analyzed"], sorted(analyzed_plot_names))
         # Convert to list
         suppliers_list = list(suppliers_data.values())
         
