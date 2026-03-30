@@ -30,6 +30,10 @@ doc_events = {
     }
 }
 
+website_redirects = [
+    {"source": "/me", "target": "https://traces360.com", "redirect_http_status": 302}
+]
+
 
 # CORS Configuration - Add this section
 override_whitelisted_methods = {
