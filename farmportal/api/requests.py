@@ -23,6 +23,11 @@ def _risk_cache_keys(customer: str) -> dict:
         "progress": f"risk_analysis_progress::{versioned}",
     }
 
+
+def _risk_analyzed_persistent_key(customer: str) -> str:
+    versioned = f"{RISK_ANALYSIS_CACHE_VERSION}::{customer}"
+    return f"risk_analyzed_plots_persistent::{versioned}"
+
 def _cache_get_json(key: str, default):
     raw = frappe.cache().get_value(key)
     if raw is None:
@@ -36,6 +41,42 @@ def _cache_get_json(key: str, default):
 
 def _cache_set_json(key: str, value):
     frappe.cache().set_value(key, json.dumps(value))
+
+
+def _load_persistent_analyzed_plot_names(customer: str) -> set[str]:
+    key = _risk_analyzed_persistent_key(customer)
+    raw = frappe.db.get_value(
+        "DefaultValue",
+        {"parent": "__default", "defkey": key},
+        "defvalue",
+    )
+    if not raw:
+        return set()
+
+    try:
+        parsed = json.loads(raw) if isinstance(raw, str) else raw
+    except Exception:
+        parsed = []
+
+    if isinstance(parsed, str):
+        try:
+            parsed = json.loads(parsed)
+        except Exception:
+            parsed = [p.strip() for p in parsed.split(",") if p and p.strip()]
+
+    if not isinstance(parsed, list):
+        return set()
+
+    return {str(name).strip() for name in parsed if str(name).strip()}
+
+
+def _save_persistent_analyzed_plot_names(customer: str, names: set[str]):
+    key = _risk_analyzed_persistent_key(customer)
+    normalized = sorted({str(name).strip() for name in (names or set()) if str(name).strip()})
+    if normalized:
+        frappe.defaults.set_global_default(key, json.dumps(normalized))
+    else:
+        frappe.defaults.set_global_default(key, None)
 
 def _normalize_progress_payload(progress: dict | None):
     payload = dict(progress or {})
@@ -136,7 +177,7 @@ def _collect_pending_risk_plot_names(customer: str, analyzed_plot_names: set[str
     if not matched_names:
         return []
 
-    # Pending state must be driven by explicit risk-analysis cache state.
+    # Pending state must be driven by explicit risk-analysis state (cache + persistent store).
     # Land Plot numeric fields can be present with defaults (0/0) before analysis,
     # so treating non-null persisted values as "already analyzed" causes false LOW risk.
     effective_analyzed = {str(n).strip() for n in analyzed_plot_names if n}
@@ -1203,9 +1244,14 @@ def get_risk_dashboard_data():
         if not customer:
             return {"suppliers": [], "summary": {}}
 
-        # Risk analysis state: keep a per-customer set of already analyzed plot names.
-        parsed_analyzed = _cache_get_json(_risk_cache_keys(customer)["analyzed"], []) or []
-        analyzed_plot_names = {str(p).strip() for p in parsed_analyzed if p}
+        # Risk analysis state: combine fast cache + persistent DB-backed state.
+        keys = _risk_cache_keys(customer)
+        parsed_analyzed = _cache_get_json(keys["analyzed"], []) or []
+        cached_analyzed_plot_names = {str(p).strip() for p in parsed_analyzed if p}
+        persistent_analyzed_plot_names = _load_persistent_analyzed_plot_names(customer)
+        analyzed_plot_names = cached_analyzed_plot_names | persistent_analyzed_plot_names
+        if persistent_analyzed_plot_names and not cached_analyzed_plot_names:
+            _cache_set_json(keys["analyzed"], sorted(analyzed_plot_names))
 
         # Get all requests for this customer with shared plots
         requests_with_plots = frappe.db.sql("""
@@ -1557,7 +1603,7 @@ def get_risk_dashboard_data():
             del data["unique_plots"]
 
         # Keep analyzed cache in sync with persisted plot data across restarts.
-        _cache_set_json(_risk_cache_keys(customer)["analyzed"], sorted(analyzed_plot_names))
+        _cache_set_json(keys["analyzed"], sorted(analyzed_plot_names))
         # Convert to list
         suppliers_list = list(suppliers_data.values())
         
@@ -1609,7 +1655,9 @@ def _run_risk_analysis_job(customer: str, pending_names: list[str] | None = None
 
     try:
         analyzed_raw = _cache_get_json(keys["analyzed"], []) or []
-        analyzed_plot_names = {str(p).strip() for p in analyzed_raw if p}
+        cached_analyzed_plot_names = {str(p).strip() for p in analyzed_raw if p}
+        persistent_analyzed_plot_names = _load_persistent_analyzed_plot_names(customer)
+        analyzed_plot_names = cached_analyzed_plot_names | persistent_analyzed_plot_names
 
         pending_names = pending_names or _collect_pending_risk_plot_names(customer, analyzed_plot_names)
         if not pending_names:
@@ -1707,6 +1755,7 @@ def _run_risk_analysis_job(customer: str, pending_names: list[str] | None = None
         frappe.db.commit()
         frappe.cache().set_value(keys["analysis"], now_datetime().isoformat())
         _cache_set_json(keys["analyzed"], sorted(analyzed_plot_names))
+        _save_persistent_analyzed_plot_names(customer, analyzed_plot_names)
 
         progress.update({
             "status": "completed",
@@ -1797,10 +1846,17 @@ def trigger_risk_analysis():
 
     if force_requested:
         _cache_set_json(keys["analyzed"], [])
-        analyzed_raw = []
+        _save_persistent_analyzed_plot_names(customer, set())
+        analyzed_plot_names = set()
     else:
         analyzed_raw = _cache_get_json(keys["analyzed"], []) or []
-    analyzed_plot_names = {str(p).strip() for p in analyzed_raw if p}
+        cached_analyzed_plot_names = {str(p).strip() for p in analyzed_raw if p}
+        persistent_analyzed_plot_names = _load_persistent_analyzed_plot_names(customer)
+        analyzed_plot_names = cached_analyzed_plot_names | persistent_analyzed_plot_names
+        if persistent_analyzed_plot_names and not cached_analyzed_plot_names:
+            _cache_set_json(keys["analyzed"], sorted(analyzed_plot_names))
+        if cached_analyzed_plot_names and not persistent_analyzed_plot_names:
+            _save_persistent_analyzed_plot_names(customer, analyzed_plot_names)
     pending_names = _collect_pending_risk_plot_names(customer, analyzed_plot_names)
 
     if not pending_names:
