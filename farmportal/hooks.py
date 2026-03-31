@@ -23,7 +23,7 @@ fixtures = [
     },
     {
         "dt": "Email Template",
-        "filters": [["name", "=", "Traces360 Welcome Email"]],
+        "filters": [["name", "=", "Traces 360 registration"]],
     },
     {
         "dt": "System Settings",

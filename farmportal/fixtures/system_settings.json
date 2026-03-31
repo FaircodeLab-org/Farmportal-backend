@@ -7,7 +7,7 @@
   "date_format": "dd-mm-yyyy",
   "time_format": "HH:mm:ss",
   "number_format": "#,##,###.##",
-  "welcome_email_template": "Traces360 Welcome Email",
+  "welcome_email_template": "Traces 360 registration",
   "disable_standard_email_footer": 1
  }
 ]
