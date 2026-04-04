@@ -1,6 +1,8 @@
 import frappe, json
 from frappe import _
 
+MAX_SUPPLIER_MEMBERS = 10
+
 # @frappe.whitelist(allow_guest=False)
 # def get_profile_for_user():
 #     """
@@ -882,6 +884,11 @@ def add_member(**kwargs):
         
         # 5. Add to custom child table
         existing_members = supplier_doc.get(member_table_fieldname) or []
+
+        if len(existing_members) >= MAX_SUPPLIER_MEMBERS:
+            frappe.throw(
+                _("Maximum {0} members are allowed per supplier").format(MAX_SUPPLIER_MEMBERS)
+            )
         
         for member in existing_members:
             if _normalize_email(member.email) == email_norm:

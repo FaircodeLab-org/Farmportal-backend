@@ -127,18 +127,172 @@ def get_suppliers(search=None, limit=100):
 
     data = frappe.db.sql(query, params, as_dict=True)
 
+    supplier_names = [str(row.get("name") or "").strip() for row in data if row.get("name")]
+    supplier_labels = [str(row.get("supplier_name") or row.get("name") or "").strip() for row in data if row.get("name")]
+    owner_users = [str(row.get("custom_user") or "").strip() for row in data if row.get("custom_user")]
+
+    profile_by_supplier = {}
+    members_by_supplier = {}
+    certificates_by_profile = {}
+
+    try:
+        # 1) Supplier members (shared organization users) keyed by Supplier.name
+        if supplier_names:
+            member_rows = frappe.get_all(
+                "Supplier User",
+                filters={
+                    "parenttype": "Supplier",
+                    "parent": ["in", supplier_names],
+                },
+                fields=["parent", "name", "first_name", "last_name", "email", "designation", "user_link"],
+                order_by="idx asc",
+                limit_page_length=max(1000, len(supplier_names) * 50),
+            )
+            for member in member_rows:
+                parent = str(member.get("parent") or "").strip()
+                if not parent:
+                    continue
+                members_by_supplier.setdefault(parent, []).append(
+                    {
+                        "name": member.get("name"),
+                        "first_name": member.get("first_name"),
+                        "last_name": member.get("last_name"),
+                        "email": member.get("email"),
+                        "designation": member.get("designation"),
+                        "user_link": member.get("user_link"),
+                    }
+                )
+
+        # 2) Organization profile lookup (primary by supplier label, fallback by owner user)
+        profile_fields = [
+            "name",
+            "organization_name",
+            "website",
+            "phone",
+            "street",
+            "house_no",
+            "postal_code",
+            "city",
+            "country",
+            "type_of_market_operator",
+            "logo",
+            "user",
+            "modified",
+        ]
+
+        profile_by_org_name = {}
+        if supplier_labels:
+            org_profiles = frappe.get_all(
+                "Organization Module",
+                filters={"organization_name": ["in", supplier_labels]},
+                fields=profile_fields,
+                order_by="modified desc",
+                limit_page_length=max(500, len(supplier_labels) * 5),
+            )
+            for profile in org_profiles:
+                org_key = str(profile.get("organization_name") or "").strip()
+                if org_key and org_key not in profile_by_org_name:
+                    profile_by_org_name[org_key] = profile
+
+        profile_by_owner_user = {}
+        if owner_users:
+            owner_profiles = frappe.get_all(
+                "Organization Module",
+                filters={"user": ["in", owner_users]},
+                fields=profile_fields,
+                order_by="modified desc",
+                limit_page_length=max(500, len(owner_users) * 5),
+            )
+            for profile in owner_profiles:
+                owner_key = str(profile.get("user") or "").strip()
+                if owner_key and owner_key not in profile_by_owner_user:
+                    profile_by_owner_user[owner_key] = profile
+
+        selected_profile_names = []
+        for row in data:
+            supplier_key = str(row.get("name") or "").strip()
+            supplier_label = str(row.get("supplier_name") or row.get("name") or "").strip()
+            owner_key = str(row.get("custom_user") or "").strip()
+            profile = profile_by_org_name.get(supplier_label) or profile_by_owner_user.get(owner_key)
+            if not profile or not supplier_key:
+                continue
+
+            profile_by_supplier[supplier_key] = profile
+            profile_name = str(profile.get("name") or "").strip()
+            if profile_name and profile_name not in selected_profile_names:
+                selected_profile_names.append(profile_name)
+
+        # 3) Certificates keyed by Organization Module profile
+        if selected_profile_names:
+            cert_rows = frappe.get_all(
+                "Organization Certificate",
+                filters={
+                    "parenttype": "Organization Module",
+                    "parent": ["in", selected_profile_names],
+                },
+                fields=["parent", "certificate_name", "evidence_type", "valid_from", "valid_to", "attachment"],
+                order_by="idx asc",
+                limit_page_length=max(1000, len(selected_profile_names) * 20),
+            )
+            for cert in cert_rows:
+                profile_name = str(cert.get("parent") or "").strip()
+                if not profile_name:
+                    continue
+                certificates_by_profile.setdefault(profile_name, []).append(
+                    {
+                        "certificate_name": cert.get("certificate_name"),
+                        "evidence_type": cert.get("evidence_type"),
+                        "valid_from": cert.get("valid_from"),
+                        "valid_to": cert.get("valid_to"),
+                        "attachment": cert.get("attachment"),
+                    }
+                )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "Supplier Profile Enrichment Error")
+
     # Format response for frontend
-    suppliers = [
-        {
-            "_id": row.name,
-            "name": row.name,
-            "supplier_name": row.supplier_name or row.name, # Display name
-            "country": row.country,
-            "user": row.custom_user,
-            "email_id": row.email,          # For displaying contact email
-            "user_enabled": row.user_enabled # 1 or 0
-        }
-        for row in data
-    ]
+    suppliers = []
+    for row in data:
+        supplier_key = str(row.get("name") or "").strip()
+        member_rows = members_by_supplier.get(supplier_key, [])
+        profile_row = profile_by_supplier.get(supplier_key)
+
+        organization_profile = None
+        certificates = []
+        if profile_row:
+            profile_name = str(profile_row.get("name") or "").strip()
+            certificates = certificates_by_profile.get(profile_name, [])
+            organization_profile = {
+                "name": profile_name,
+                "organization_name": profile_row.get("organization_name"),
+                "website": profile_row.get("website"),
+                "phone": profile_row.get("phone"),
+                "street": profile_row.get("street"),
+                "house_no": profile_row.get("house_no"),
+                "postal_code": profile_row.get("postal_code"),
+                "city": profile_row.get("city"),
+                "country": profile_row.get("country"),
+                "type_of_market_operator": profile_row.get("type_of_market_operator"),
+                "logo": profile_row.get("logo"),
+                "certificates": certificates,
+                "members": member_rows,
+            }
+
+        suppliers.append(
+            {
+                "_id": row.name,
+                "name": row.name,
+                "supplier_name": row.supplier_name or row.name,  # Display name
+                "country": row.country,
+                "user": row.custom_user,
+                "email_id": row.email,  # For displaying contact email
+                "user_enabled": row.user_enabled,  # 1 or 0
+                "has_profile": bool(organization_profile),
+                "members_count": len(member_rows),
+                "certificates_count": len(certificates),
+                "organization_members": member_rows,
+                "organization_profile": organization_profile,
+            }
+        )
     
     return {"suppliers": suppliers}
