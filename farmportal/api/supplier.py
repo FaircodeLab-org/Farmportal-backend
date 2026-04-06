@@ -345,3 +345,127 @@ def get_suppliers(search=None, limit=100, page=1, page_size=None):
         "suppliers": suppliers,
         "pagination": _build_pagination(page_no, page_limit, total),
     }
+
+
+def _normalize_file_url(value):
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    if normalized.startswith(("http://", "https://")):
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(normalized)
+            normalized = parsed.path or normalized
+        except Exception:
+            pass
+    return normalized
+
+
+@frappe.whitelist()
+def download_supplier_profile_attachment(supplier_name, file_url=None, file_name=None):
+    """Download supplier profile certificate attachment with permission checks."""
+    user = frappe.session.user
+    if user == "Guest":
+        frappe.throw(_("Not logged in"), frappe.PermissionError)
+
+    supplier_name = str(supplier_name or "").strip()
+    if not supplier_name:
+        frappe.throw(_("supplier_name is required"))
+
+    supplier_doc = frappe.get_doc("Supplier", supplier_name)
+
+    # Permission model:
+    # - Importer (Customer-linked user): can view supplier profile attachments in Browse Suppliers.
+    # - Supplier-linked user: only for their own supplier profile.
+    from farmportal.api.requests import _get_party_from_user
+
+    customer_name, supplier_link = _get_party_from_user(user)
+    supplier_link = str(supplier_link or "").strip()
+
+    has_customer_access = bool(customer_name)
+    has_same_supplier_access = bool(supplier_link and supplier_link == supplier_name)
+
+    if not (has_customer_access or has_same_supplier_access):
+        frappe.throw(_("Not permitted to download this attachment"), frappe.PermissionError)
+
+    supplier_label = str(supplier_doc.get("supplier_name") or supplier_doc.name or "").strip()
+    supplier_owner = str(supplier_doc.get("custom_user") or "").strip()
+
+    profile_name = None
+    if supplier_label:
+        profile_rows = frappe.get_all(
+            "Organization Module",
+            filters={"organization_name": supplier_label},
+            fields=["name"],
+            order_by="modified desc",
+            limit=1,
+        )
+        if profile_rows:
+            profile_name = str(profile_rows[0].get("name") or "").strip()
+
+    if not profile_name and supplier_owner:
+        profile_rows = frappe.get_all(
+            "Organization Module",
+            filters={"user": supplier_owner},
+            fields=["name"],
+            order_by="modified desc",
+            limit=1,
+        )
+        if profile_rows:
+            profile_name = str(profile_rows[0].get("name") or "").strip()
+
+    if not profile_name:
+        frappe.throw(_("Supplier profile not found"), frappe.DoesNotExistError)
+
+    cert_rows = frappe.get_all(
+        "Organization Certificate",
+        filters={
+            "parenttype": "Organization Module",
+            "parent": profile_name,
+        },
+        fields=["attachment"],
+        limit_page_length=500,
+    )
+
+    allowed_urls = {
+        _normalize_file_url(row.get("attachment"))
+        for row in cert_rows
+        if row.get("attachment")
+    }
+    allowed_urls = {u for u in allowed_urls if u}
+
+    if not allowed_urls:
+        frappe.throw(_("Attachment not found"), frappe.DoesNotExistError)
+
+    normalized_url = _normalize_file_url(file_url)
+    if normalized_url and normalized_url not in allowed_urls:
+        frappe.throw(_("Not permitted to download this attachment"), frappe.PermissionError)
+
+    filters = {}
+    if file_name:
+        filters["name"] = str(file_name).strip()
+    elif normalized_url:
+        filters["file_url"] = normalized_url
+    else:
+        frappe.throw(_("file_url or file_name is required"))
+
+    file_rows = frappe.get_all(
+        "File",
+        filters=filters,
+        fields=["name", "file_name", "file_url"],
+        order_by="creation desc",
+        limit=1,
+    )
+
+    if not file_rows:
+        frappe.throw(_("Attachment not found"), frappe.DoesNotExistError)
+
+    selected_file = file_rows[0]
+    selected_url = _normalize_file_url(selected_file.get("file_url"))
+    if selected_url and selected_url not in allowed_urls:
+        frappe.throw(_("Not permitted to download this attachment"), frappe.PermissionError)
+
+    file_doc = frappe.get_doc("File", selected_file["name"])
+    frappe.local.response.filename = selected_file.get("file_name") or file_doc.file_name or file_doc.name
+    frappe.local.response.filecontent = file_doc.get_content()
+    frappe.local.response.type = "download"
