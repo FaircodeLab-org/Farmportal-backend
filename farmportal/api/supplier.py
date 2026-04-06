@@ -1,5 +1,6 @@
 import frappe
 from frappe import _
+from frappe.utils import now_datetime
 
 
 def _coerce_page(value, default=1):
@@ -33,6 +34,31 @@ def _build_pagination(page, page_size, total):
 
 def _normalize_email(value):
     return (value or "").strip().lower()
+
+
+def _first_existing_supplier_field(candidates):
+    try:
+        meta = frappe.get_meta("Supplier")
+    except Exception:
+        return None
+
+    for fieldname in candidates:
+        if meta.has_field(fieldname):
+            return fieldname
+    return None
+
+
+def _normalize_verification_status(value):
+    raw = str(value or "").strip().lower()
+    if raw in {"verified", "verify", "approved", "done", "complete", "completed"}:
+        return "Verified"
+    if raw in {"rejected", "reject", "declined"}:
+        return "Rejected"
+    return "Pending"
+
+
+def _verification_default_key(supplier_name):
+    return f"supplier_verification_status::{str(supplier_name or '').strip()}"
 
 
 def _resolve_user_name(value):
@@ -213,6 +239,12 @@ def get_suppliers(search=None, limit=100, page=1, page_size=None):
     page_no = _coerce_page(page, default=1)
     page_limit = _coerce_page_size(page_size=page_size, fallback_limit=limit, default=25, max_size=100)
     offset = (page_no - 1) * page_limit
+    verification_field = _first_existing_supplier_field(("custom_verification_status", "verification_status"))
+    verification_select = (
+        f", s.`{verification_field}` as verification_status"
+        if verification_field
+        else ", 'Pending' as verification_status"
+    )
 
     # Prepare search condition
     search_condition = ""
@@ -238,6 +270,7 @@ def get_suppliers(search=None, limit=100, page=1, page_size=None):
             s.custom_user,
             u.email, 
             u.enabled as user_enabled
+            {verification_select}
         FROM `tabSupplier` s
         JOIN `tabUser` u ON s.custom_user = u.name
         WHERE 
@@ -432,6 +465,11 @@ def get_suppliers(search=None, limit=100, page=1, page_size=None):
                 "has_profile": bool(organization_profile),
                 "members_count": len(member_rows),
                 "certificates_count": len(certificates),
+                "verification_status": _normalize_verification_status(
+                    row.get("verification_status")
+                    if verification_field
+                    else frappe.defaults.get_global_default(_verification_default_key(row.name))
+                ),
                 "organization_members": member_rows,
                 "organization_profile": organization_profile,
             }
@@ -440,6 +478,58 @@ def get_suppliers(search=None, limit=100, page=1, page_size=None):
     return {
         "suppliers": suppliers,
         "pagination": _build_pagination(page_no, page_limit, total),
+    }
+
+
+@frappe.whitelist()
+def update_supplier_verification_status(supplier_name, verification_status="Pending"):
+    user = frappe.session.user
+    if user == "Guest":
+        frappe.throw(_("Not logged in"), frappe.PermissionError)
+
+    supplier_name = str(supplier_name or "").strip()
+    if not supplier_name:
+        frappe.throw(_("Supplier Name is required"))
+
+    if not frappe.db.exists("Supplier", supplier_name):
+        frappe.throw(_("Supplier not found"))
+
+    from farmportal.api.requests import _get_party_from_user
+
+    customer_name, _supplier_name = _get_party_from_user(user)
+    is_system_manager = "System Manager" in frappe.get_roles(user)
+    if not customer_name and not is_system_manager:
+        frappe.throw(_("Only importer users can update supplier verification status"), frappe.PermissionError)
+
+    verification_field = _first_existing_supplier_field(("custom_verification_status", "verification_status"))
+    normalized_status = _normalize_verification_status(verification_status)
+    if verification_field:
+        updates = {verification_field: normalized_status}
+
+        verified_by_field = _first_existing_supplier_field(("custom_verified_by", "verified_by"))
+        verified_on_field = _first_existing_supplier_field(("custom_verified_on", "verified_on"))
+
+        if normalized_status == "Verified":
+            if verified_by_field:
+                updates[verified_by_field] = user
+            if verified_on_field:
+                updates[verified_on_field] = now_datetime()
+        else:
+            if verified_by_field:
+                updates[verified_by_field] = None
+            if verified_on_field:
+                updates[verified_on_field] = None
+
+        frappe.db.set_value("Supplier", supplier_name, updates, update_modified=True)
+    else:
+        frappe.defaults.set_global_default(_verification_default_key(supplier_name), normalized_status)
+
+    frappe.db.commit()
+
+    return {
+        "message": _("Supplier verification status updated"),
+        "supplier_name": supplier_name,
+        "verification_status": normalized_status,
     }
 
 
