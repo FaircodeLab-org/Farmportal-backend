@@ -27,10 +27,6 @@ fixtures = [
         "filters": [["name", "=", "EUDR Commodities"]],
     },
     {
-        "dt": "Item",
-        "filters": [["item_group", "=", "EUDR Commodities"]],
-    },
-    {
         "dt": "Email Template",
         "filters": [["name", "=", "Traces 360 registration"]],
     },
