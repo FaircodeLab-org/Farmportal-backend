@@ -68,8 +68,6 @@
   "description": null,
   "docstatus": 0,
   "doctype": "Custom Field",
-<<<<<<< HEAD
-=======
   "dt": "Supplier",
   "fetch_from": null,
   "fetch_if_empty": 0,
@@ -241,7 +239,6 @@
   "description": null,
   "docstatus": 0,
   "doctype": "Custom Field",
->>>>>>> test
   "dt": "Customer",
   "fetch_from": null,
   "fetch_if_empty": 0,
@@ -281,8 +278,6 @@
   "report_hide": 0,
   "reqd": 0,
   "search_index": 0,
-<<<<<<< HEAD
-=======
  "show_dashboard": 0,
  "sort_options": 0,
  "translatable": 0,
@@ -340,15 +335,10 @@
   "report_hide": 0,
   "reqd": 0,
   "search_index": 0,
->>>>>>> test
   "show_dashboard": 0,
   "sort_options": 0,
   "translatable": 0,
   "unique": 0,
   "width": null
  }
-<<<<<<< HEAD
 ]
-=======
-]
->>>>>>> test
